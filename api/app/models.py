@@ -66,16 +66,21 @@ class OdometerSnapshot(Base):
 class TripTemplate(Base):
     __tablename__ = "trip_templates"
     id: Mapped[int] = mapped_column(primary_key=True)
-
-    name: Mapped[str] = mapped_column(String(120), unique=True, index=True)  # t.ex. "Järfälla ↔ Norrtälje"
+    name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
     default_purpose: Mapped[Optional[str]] = mapped_column(String(255))
     business: Mapped[bool] = mapped_column(Boolean, default=True)
-
-    # valfria förifyllningar (om du vill att template sätter dessa)
     default_distance_km: Mapped[Optional[float]] = mapped_column(Float)
-
     start_place_id: Mapped[Optional[int]] = mapped_column(ForeignKey("places.id"))
     end_place_id: Mapped[Optional[int]] = mapped_column(ForeignKey("places.id"))
-
     start_place: Mapped[Optional["Place"]] = relationship(foreign_keys=[start_place_id])
     end_place:   Mapped[Optional["Place"]] = relationship(foreign_keys=[end_place_id])
+
+class Setting(Base):
+    """
+    Enkel key/value-lagring för inställningar (t.ex. HA_BASE_URL, HA_TOKEN, HA_ENTITY).
+    Token returneras aldrig i klartext av API:t.
+    """
+    __tablename__ = "settings"
+    key: Mapped[str] = mapped_column(String(120), primary_key=True)
+    value: Mapped[str] = mapped_column(String(4096))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
