@@ -9,6 +9,8 @@ type Trip = {
   started_at: string;
   ended_at: string;
   distance_km?: number;
+  start_odometer_km?: number | null;
+  end_odometer_km?: number | null;
   purpose?: string;
   business: boolean;
 };
@@ -19,8 +21,6 @@ type Template = {
   default_purpose?: string;
   business: boolean;
   default_distance_km?: number;
-  start_place?: string;
-  end_place?: string;
 };
 
 export default function Home() {
@@ -28,7 +28,6 @@ export default function Home() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [vehicle, setVehicle] = useState('ABC123');
 
-  // OBS: inget separat Regnr i formuläret – vi använder bara `vehicle` högst upp
   const [form, setForm] = useState({
     started_at: '',
     ended_at: '',
@@ -36,7 +35,6 @@ export default function Home() {
     business: true,
     distance_km: '',
   });
-
   const [editId, setEditId] = useState<number | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<number | 'new' | ''>('');
 
@@ -45,27 +43,28 @@ export default function Home() {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
 
+  // === no-cache + cache-bust ===
   const loadTrips = async () => {
-    const url = vehicle ? `${API}/trips?vehicle=${encodeURIComponent(vehicle)}` : `${API}/trips`;
-    const r = await fetch(url);
+    const ts = Date.now();
+    const urlBase = vehicle ? `${API}/trips?vehicle=${encodeURIComponent(vehicle)}` : `${API}/trips`;
+    const url = `${urlBase}${urlBase.includes('?') ? '&' : '?'}_ts=${ts}`;
+    const r = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
     setTrips(await r.json());
   };
   const loadTemplates = async () => {
-    const r = await fetch(`${API}/templates`);
+    const r = await fetch(`${API}/templates?_ts=${Date.now()}`, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
     setTemplates(await r.json());
   };
 
   useEffect(() => { loadTrips(); }, [vehicle]);
   useEffect(() => { loadTemplates(); }, []);
 
-  // Helpers
   const round1 = (n: number) => Math.round(n * 10) / 10;
   const toLocalInputValue = (d: Date) => {
     const pad = (x:number)=> String(x).padStart(2,'0');
     return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   };
 
-  // Templates
   const onPickTemplate = (val: string) => {
     if (!val) { setSelectedTemplate(''); return; }
     if (val === 'new') { setSelectedTemplate('new'); return; }
@@ -94,10 +93,9 @@ export default function Home() {
     const r = await fetch(`${API}/templates`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
     if (!r.ok) { alert(await r.text()); return; }
     await loadTemplates();
-    setSelectedTemplate('');
   };
 
-  // Start/Stop via HA
+  // --- Start/Stop via HA (med manuellt override möjligt) ---
   const startTrip = async () => {
     try {
       setStarting(true);
@@ -105,34 +103,43 @@ export default function Home() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ vehicle_reg: vehicle })
       });
-      if (!res.ok) { alert(`Kunde inte läsa mätarställning (start)`); return; }
-      const data = await res.json();
+      if (!res.ok) {
+        alert(`Kunde inte läsa mätarställning (start) — fyll i manuellt nedan.`);
+        setStartOdo(null);
+      } else {
+        const data = await res.json();
+        setStartOdo(data.value_km);
+      }
       const now = new Date();
-      setStartOdo(data.value_km); setEndOdo(null);
+      setEndOdo(null);
       setForm(f => ({ ...f, started_at: toLocalInputValue(now), ended_at: '', distance_km: '' }));
     } finally { setStarting(false); }
   };
 
   const stopTripAndSave = async () => {
     try {
-      if (!form.started_at || startOdo == null) {
-        alert('Ingen pågående resa. Tryck "Starta resa" först.');
+      if (!form.started_at) {
+        alert('Ingen pågående resa. Tryck "Starta resa" eller fyll i tider manuellt.');
         return;
       }
       setStopping(true);
-      const res = await fetch(`${API}/integrations/home-assistant/force-update-and-poll`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vehicle_reg: vehicle })
-      });
-      if (!res.ok) { alert(`Kunde inte läsa mätarställning (slut)`); return; }
-      const data = await res.json();
-      const now = new Date();
-      const endVal = data.value_km as number;
-      setEndOdo(endVal);
 
-      const kmRaw = endVal - (startOdo as number);
-      const km = kmRaw >= 0 && isFinite(kmRaw) ? round1(kmRaw) : 0;
-      setForm(f => ({ ...f, ended_at: toLocalInputValue(now), distance_km: km.toString() }));
+      let endVal: number | null = endOdo;
+      if (endVal == null) {
+        const res = await fetch(`${API}/integrations/home-assistant/force-update-and-poll`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ vehicle_reg: vehicle })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          endVal = data.value_km as number;
+          setEndOdo(endVal);
+        }
+      }
+
+      const now = new Date();
+      const kmRaw = (startOdo != null && endVal != null) ? (endVal - startOdo) : NaN;
+      const km = isFinite(kmRaw) && kmRaw >= 0 ? round1(kmRaw) : (form.distance_km ? parseFloat(form.distance_km) : undefined);
 
       const payload: any = {
         vehicle_reg: vehicle,
@@ -140,8 +147,8 @@ export default function Home() {
         ended_at: now.toISOString(),
         purpose: form.purpose,
         business: form.business,
-        start_odometer_km: startOdo,
-        end_odometer_km: endVal,
+        start_odometer_km: startOdo ?? undefined,
+        end_odometer_km: endVal ?? undefined,
         distance_km: km,
       };
 
@@ -168,11 +175,11 @@ export default function Home() {
 
       setForm(f => ({ ...f, started_at: '', ended_at: '', distance_km: '' }));
       setStartOdo(null); setEndOdo(null); setSelectedTemplate('');
-      await loadTrips();
+      await loadTrips(); // uppdatera listan direkt
     } finally { setStopping(false); }
   };
 
-  // Manuell CRUD (utan regnr-fält i formuläret)
+  // --- Manuell CRUD ---
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const payload: any = {
@@ -181,23 +188,26 @@ export default function Home() {
       ended_at: new Date(form.ended_at).toISOString(),
       purpose: form.purpose,
       business: form.business,
+      start_odometer_km: startOdo ?? undefined,
+      end_odometer_km: endOdo ?? undefined,
     };
     if (form.distance_km) payload.distance_km = parseFloat(form.distance_km);
 
     const method = editId ? 'PUT' : 'POST';
     const endpoint = editId ? `${API}/trips/${editId}` : `${API}/trips`;
-
     const res = await fetch(endpoint, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     if (!res.ok) { alert(await res.text()); return; }
     setForm({ ...form, started_at: '', ended_at: '', distance_km: '' });
-    setEditId(null);
+    setStartOdo(null); setEndOdo(null); setEditId(null);
     await loadTrips();
   };
 
   const edit = (t: Trip) => {
     setEditId(t.id);
-    setSelectedTemplate(''); setStartOdo(null); setEndOdo(null);
+    setSelectedTemplate('');
     setVehicle(t.vehicle_reg);
+    setStartOdo(t.start_odometer_km ?? null);
+    setEndOdo(t.end_odometer_km ?? null);
     setForm({
       started_at: t.started_at.slice(0,16),
       ended_at: t.ended_at.slice(0,16),
@@ -209,6 +219,7 @@ export default function Home() {
 
   const remove = async (id: number) => {
     if (!confirm('Radera resa?')) return;
+    await fetch(`${API}/trips`, { cache: 'no-store' }); // litet nudge
     await fetch(`${API}/trips/${id}`, { method: 'DELETE' });
     await loadTrips();
   };
@@ -216,9 +227,11 @@ export default function Home() {
   const exportCsv = () => window.open(`${API}/exports/journal.csv?vehicle=${vehicle}`, '_blank');
   const exportPdf = () => window.open(`${API}/exports/journal.pdf?vehicle=${vehicle}`, '_blank');
 
+  const liveKm = (startOdo!=null && endOdo!=null) ? round1(endOdo - startOdo) : (form.distance_km ? parseFloat(form.distance_km) : undefined);
+
   return (
     <div>
-      {/* ENDA regnr-fältet – överst */}
+      {/* Regnr + Export */}
       <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
         <label>
           Regnr
@@ -243,22 +256,38 @@ export default function Home() {
         )}
       </div>
 
-      {/* Start/Stop-flöde */}
-      <div style={{ display:'flex', gap:8, marginTop:12, alignItems:'center' }}>
-        <button onClick={startTrip} disabled={starting || !!startOdo}>
-          {starting ? 'Hämtar mätarställning…' : (startOdo != null ? `Start satt (${startOdo} km)` : 'Starta resa (hämta odo)')}
+      {/* Start/Stop + Odometer (editbara) */}
+      <div style={{ display:'grid', gap:8, marginTop:12, alignItems:'center', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))' }}>
+        <button onClick={startTrip} disabled={starting || !!form.started_at}>
+          {starting ? 'Hämtar mätarställning…' : (form.started_at ? 'Start satt' : 'Starta resa (hämta odo)')}
         </button>
-        <button onClick={stopTripAndSave} disabled={stopping || startOdo == null}>
-          {stopping ? 'Sparar…' : 'Avsluta resa (hämta odo & spara)'}
+        <button onClick={stopTripAndSave} disabled={stopping || !form.started_at}>
+          {stopping ? 'Sparar…' : 'Avsluta resa (spara)'}
         </button>
-        {startOdo != null && endOdo != null && (
-          <span style={{ marginLeft: 8 }}>
-            {`Km: ${round1(endOdo - startOdo)} (start ${startOdo} → slut ${endOdo})`}
-          </span>
-        )}
+        <label>
+          Start mätarställning (km)
+          <input
+            inputMode="decimal"
+            value={startOdo ?? ''}
+            onChange={e=> setStartOdo(e.target.value === '' ? null : Number(e.target.value))}
+            placeholder="t.ex. 12345.6"
+          />
+        </label>
+        <label>
+          Slut mätarställning (km)
+          <input
+            inputMode="decimal"
+            value={endOdo ?? ''}
+            onChange={e=> setEndOdo(e.target.value === '' ? null : Number(e.target.value))}
+            placeholder="t.ex. 12358.1"
+          />
+        </label>
+        <div style={{ alignSelf:'end', color:'#444' }}>
+          Km (auto): {liveKm ?? '-'}
+        </div>
       </div>
 
-      {/* Manuell form – utan regnr */}
+      {/* Manuell form */}
       <form onSubmit={submit} style={{ display: 'grid', gap: 8, marginTop: 16 }}>
         <label>
           Start
@@ -273,7 +302,7 @@ export default function Home() {
           <input value={form.purpose} onChange={e=>setForm({ ...form, purpose: e.target.value })} />
         </label>
         <label>
-          Km
+          Km (om du vill skriva över)
           <input value={form.distance_km} onChange={e=>setForm({ ...form, distance_km: e.target.value })} />
         </label>
         <label>
@@ -281,7 +310,7 @@ export default function Home() {
           <input type="checkbox" checked={form.business} onChange={e=>setForm({ ...form, business: e.target.checked })} />
         </label>
         <button type="submit">{editId ? 'Uppdatera resa' : 'Spara resa (manuellt)'}</button>
-        {editId && <button type="button" onClick={()=>{ setEditId(null); setForm({...form, started_at:'', ended_at:'', distance_km:''}); }}>Avbryt</button>}
+        {editId && <button type="button" onClick={()=>{ setEditId(null); setForm({...form, started_at:'', ended_at:'', distance_km:''}); setStartOdo(null); setEndOdo(null); }}>Avbryt</button>}
       </form>
 
       <h2 style={{ marginTop: 24, fontSize: 18 }}>Resor</h2>
@@ -290,6 +319,8 @@ export default function Home() {
           <tr>
             <th align="left">Start</th>
             <th align="left">Slut</th>
+            <th align="left">Start-odo</th>
+            <th align="left">Slut-odo</th>
             <th align="left">Km</th>
             <th align="left">Syfte</th>
             <th align="left">Typ</th>
@@ -301,6 +332,8 @@ export default function Home() {
             <tr key={t.id}>
               <td>{new Date(t.started_at).toLocaleString()}</td>
               <td>{new Date(t.ended_at).toLocaleString()}</td>
+              <td>{t.start_odometer_km ?? '-'}</td>
+              <td>{t.end_odometer_km ?? '-'}</td>
               <td>{t.distance_km ?? '-'}</td>
               <td>{t.purpose || ''}</td>
               <td>{t.business ? 'Tjänst' : 'Privat'}</td>
