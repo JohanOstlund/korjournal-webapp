@@ -51,6 +51,14 @@ class Trip(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    vehicle: Mapped[Vehicle] = relationship()
-    start_place: Mapped[Optional[Place]] = relationship(foreign_keys=[start_place_id])
-    end_place: Mapped[Optional[Place]] = relationship(foreign_keys=[end_place_id])
+    vehicle: Mapped["Vehicle"] = relationship()
+    start_place: Mapped[Optional["Place"]] = relationship(foreign_keys=[start_place_id])
+    end_place: Mapped[Optional["Place"]] = relationship(foreign_keys=[end_place_id])
+
+class OdometerSnapshot(Base):
+    __tablename__ = "odometer_snapshots"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"))
+    at: Mapped[datetime] = mapped_column(DateTime)
+    value_km: Mapped[float] = mapped_column(Float)
+    source: Mapped[Optional[str]] = mapped_column(String(50))  # 'kia_uvo','manual','ha'
