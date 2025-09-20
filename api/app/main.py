@@ -3,11 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import math, httpx, os, asyncio, json
 
 from .db import SessionLocal, engine
-from .models import Base, Trip, Vehicle, Place, OdometerSnapshot, TripTemplate
+from .models import Base, Trip, Vehicle, Place, OdometerSnapshot, TripTemplate, Setting
 from .pdf import render_journal_pdf
 
 Base.metadata.create_all(bind=engine)
@@ -23,15 +23,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-OSRM_URL = os.getenv("OSRM_URL")
-
-# --- Home Assistant config ---
-HA_BASE_URL = os.getenv("HA_BASE_URL")
-HA_TOKEN    = os.getenv("HA_TOKEN")
-HA_ENTITY   = os.getenv("HA_ODOMETER_ENTITY")
-HA_FORCE_DOMAIN  = os.getenv("HA_FORCE_DOMAIN", "kia_uvo")
-HA_FORCE_SERVICE = os.getenv("HA_FORCE_SERVICE", "force_update")
-HA_FORCE_DATA    = os.getenv("HA_FORCE_DATA")
+# Env-värden (har högre prio än DB-settings)
+ENV_HA_BASE_URL = os.getenv("HA_BASE_URL")
+ENV_HA_TOKEN    = os.getenv("HA_TOKEN")
+ENV_HA_ENTITY   = os.getenv("HA_ODOMETER_ENTITY")
+ENV_HA_FORCE_DOMAIN  = os.getenv("HA_FORCE_DOMAIN", "kia_uvo")
+ENV_HA_FORCE_SERVICE = os.getenv("HA_FORCE_SERVICE", "force_update")
+ENV_HA_FORCE_DATA    = os.getenv("HA_FORCE_DATA")  # JSON string
 
 def get_db():
     db = SessionLocal()
@@ -40,6 +38,35 @@ def get_db():
     finally:
         db.close()
 
+# ---- Settings helpers ----
+def get_setting(db: Session, key: str) -> Optional[str]:
+    s = db.query(Setting).filter(Setting.key == key).first()
+    return s.value if s else None
+
+def set_setting(db: Session, key: str, value: str):
+    s = db.query(Setting).filter(Setting.key == key).first()
+    now = datetime.utcnow()
+    if s:
+        s.value = value; s.updated_at = now
+    else:
+        s = Setting(key=key, value=value, updated_at=now)
+        db.add(s)
+    db.commit()
+
+def get_ha_config(db: Session) -> Tuple[str, str, str, str, str, Optional[dict]]:
+    base = ENV_HA_BASE_URL or get_setting(db, "HA_BASE_URL")
+    token = ENV_HA_TOKEN    or get_setting(db, "HA_TOKEN")
+    entity= ENV_HA_ENTITY   or get_setting(db, "HA_ODOMETER_ENTITY")
+    domain = ENV_HA_FORCE_DOMAIN or get_setting(db, "HA_FORCE_DOMAIN") or "kia_uvo"
+    service= ENV_HA_FORCE_SERVICE or get_setting(db, "HA_FORCE_SERVICE") or "force_update"
+    data_raw = ENV_HA_FORCE_DATA or get_setting(db, "HA_FORCE_DATA")
+    data_json = None
+    if data_raw:
+        try: data_json = json.loads(data_raw)
+        except Exception: data_json = None
+    return base, token, entity, domain, service, data_json
+
+# ---- Distance helpers ----
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371.0
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
@@ -49,6 +76,7 @@ def haversine(lat1, lon1, lat2, lon2):
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
 
 async def osrm_distance_km(a_lat, a_lon, b_lat, b_lon) -> Optional[float]:
+    OSRM_URL = os.getenv("OSRM_URL")
     if not OSRM_URL:
         return None
     url = f"{OSRM_URL}/route/v1/driving/{a_lon},{a_lat};{b_lon},{b_lat}?overview=false"
@@ -63,6 +91,7 @@ async def osrm_distance_km(a_lat, a_lon, b_lat, b_lon) -> Optional[float]:
 
 from pydantic import BaseModel
 
+# ---- Schemas ----
 class TripIn(BaseModel):
     vehicle_reg: str
     started_at: datetime
@@ -97,7 +126,6 @@ class OdoIn(BaseModel):
     at: datetime
     source: Optional[str] = None
 
-# ---- Templates ----
 class TemplateIn(BaseModel):
     name: str
     default_purpose: Optional[str] = None
@@ -115,6 +143,28 @@ class TemplateOut(BaseModel):
     start_place: Optional[str]
     end_place: Optional[str]
 
+class HAPollIn(BaseModel):
+    vehicle_reg: str
+    entity_id: Optional[str] = None
+    at: Optional[datetime] = None
+
+class HASettingsIn(BaseModel):
+    base_url: Optional[str] = None
+    token: Optional[str] = None  # sparas, men returneras aldrig
+    entity_id: Optional[str] = None
+    force_domain: Optional[str] = None
+    force_service: Optional[str] = None
+    force_data_json: Optional[dict] = None
+
+class HASettingsOut(BaseModel):
+    base_url: Optional[str]
+    entity_id: Optional[str]
+    force_domain: str
+    force_service: str
+    has_token: bool
+    token_last4: Optional[str] = None
+
+# ---- Validation ----
 def ensure_no_overlap(db: Session, vehicle_id: int, start: datetime, end: datetime, exclude_id: Optional[int]=None):
     q = db.query(Trip).filter(Trip.vehicle_id==vehicle_id)
     if exclude_id:
@@ -160,14 +210,11 @@ async def create_trip(payload: TripIn, db: Session = Depends(get_db)):
                       lat=payload.end_lat, lon=payload.end_lon)
         db.add(end_p); db.flush()
 
-    # 1) Avstånd från koordinater om angivet
     dist_km = payload.distance_km
     if dist_km is None and all(v is not None for v in [payload.start_lat, payload.start_lon, payload.end_lat, payload.end_lon]):
         dist_km = await osrm_distance_km(payload.start_lat, payload.start_lon, payload.end_lat, payload.end_lon)
         if dist_km is None:
             dist_km = round(haversine(payload.start_lat, payload.start_lon, payload.end_lat, payload.end_lon), 2)
-
-    # 2) Fallback: räkna ut från mätarställning om distance_km saknas
     if dist_km is None:
         dist_km = odo_delta_distance(payload.start_odometer_km, payload.end_odometer_km)
 
@@ -213,7 +260,6 @@ async def update_trip(trip_id: int = Path(...), payload: TripIn = None, db: Sess
 
     ensure_no_overlap(db, veh.id, payload.started_at, payload.ended_at, exclude_id=trip.id)
 
-    # beräkna distans om inte skickad men odometer finns
     dist_km = payload.distance_km
     if dist_km is None:
         dist_km = odo_delta_distance(payload.start_odometer_km, payload.end_odometer_km)
@@ -270,6 +316,7 @@ async def list_trips(
         ))
     return res
 
+# ---------- Exports ----------
 @app.post("/exports/journal.csv")
 async def export_csv(
     db: Session = Depends(get_db),
@@ -287,7 +334,6 @@ async def export_csv(
     output = StringIO(); writer = csv.writer(output, delimiter=';')
     writer.writerow(["År","Regnr","Datum","Startadress","Slutadress","Start mätarställning","Slut mätarställning","Antal km","Ärende/Syfte","Förare","Tjänst/Privat","Anteckningar"])
 
-    rows = []
     for t, v in q.order_by(Trip.started_at.asc()).all():
         datum = t.started_at.strftime('%Y-%m-%d')
         writer.writerow([
@@ -301,16 +347,6 @@ async def export_csv(
             "Tjänst" if t.business else "Privat",
             t.notes or "",
         ])
-        rows.append({
-            "datum": datum,
-            "start_odo": t.start_odometer_km or "",
-            "end_odo": t.end_odometer_km or "",
-            "km": t.distance_km or "",
-            "start_adress": t.start_place.address if t.start_place_id else "",
-            "slut_adress": t.end_place.address if t.end_place_id else "",
-            "syfte": t.purpose or "",
-            "tjanst": t.business,
-        })
 
     csv_bytes = output.getvalue().encode('utf-8-sig')
     return Response(content=csv_bytes, media_type="text/csv",
@@ -344,7 +380,7 @@ async def export_pdf(
     return Response(content=pdf_bytes, media_type="application/pdf",
                     headers={"Content-Disposition": "attachment; filename=korjournal.pdf"})
 
-# --- odometer snapshots (HA/Kia UVO) ---
+# ---------- Odometer ----------
 @app.post("/odometer")
 async def add_odometer(payload: OdoIn, db: Session = Depends(get_db)):
     veh = db.query(Vehicle).filter(Vehicle.reg_no==payload.vehicle_reg).first()
@@ -355,7 +391,6 @@ async def add_odometer(payload: OdoIn, db: Session = Depends(get_db)):
     db.add(snap); db.commit()
     return {"status": "ok"}
 
-# Back-compat: Home Assistant webhook
 class HAWebhook(BaseModel):
     vehicle_reg: str
     odometer_km: float
@@ -368,19 +403,14 @@ async def ha_webhook(payload: HAWebhook, db: Session = Depends(get_db)):
                                     at=payload.at,
                                     source="ha"), db)
 
-# --- HA polling (manuell/på begäran) ---
-class HAPollIn(BaseModel):
-    vehicle_reg: str
-    entity_id: Optional[str] = None
-    at: Optional[datetime] = None
-
 @app.post("/integrations/home-assistant/poll")
 async def ha_poll(payload: HAPollIn, db: Session = Depends(get_db)):
-    if not (HA_BASE_URL and HA_TOKEN and (HA_ENTITY or payload.entity_id)):
-        raise HTTPException(400, "HA_BASE_URL, HA_TOKEN, and HA_ODOMETER_ENTITY (or entity_id) must be set")
-    entity = payload.entity_id or HA_ENTITY
-    url = f"{HA_BASE_URL}/api/states/{entity}"
-    headers = {"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"}
+    base, token, entity, *_ = get_ha_config(db)
+    if not (base and token and (entity or payload.entity_id)):
+        raise HTTPException(400, "HA Base/Token/Entity not configured")
+    eid = payload.entity_id or entity
+    url = f"{base}/api/states/{eid}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=10, verify=False) as client:
         r = await client.get(url, headers=headers)
         if r.status_code != 200:
@@ -391,30 +421,63 @@ async def ha_poll(payload: HAPollIn, db: Session = Depends(get_db)):
         except Exception:
             raise HTTPException(500, f"Could not parse odometer state: {data.get('state')}")
         at = payload.at or datetime.utcnow()
+
     veh = db.query(Vehicle).filter(Vehicle.reg_no==payload.vehicle_reg).first()
     if not veh:
         veh = Vehicle(reg_no=payload.vehicle_reg)
         db.add(veh); db.flush()
     snap = OdometerSnapshot(vehicle_id=veh.id, at=at, value_km=value_km, source="ha-poll")
     db.add(snap); db.commit()
-    return {"status": "ok", "value_km": value_km, "entity": entity}
+    return {"status": "ok", "value_km": value_km, "entity": eid}
 
-# --- Force update + poll ---
 @app.post("/integrations/home-assistant/force-update-and-poll")
 async def ha_force_update_and_poll(payload: HAPollIn, wait_seconds: int = 15, db: Session = Depends(get_db)):
-    if not (HA_BASE_URL and HA_TOKEN):
-        raise HTTPException(400, "HA_BASE_URL and HA_TOKEN must be set")
-    service_data = {}
-    if HA_FORCE_DATA:
-        try:
-            service_data = json.loads(HA_FORCE_DATA)
-        except Exception:
-            pass
-    svc_url = f"{HA_BASE_URL}/api/services/{HA_FORCE_DOMAIN}/{HA_FORCE_SERVICE}"
-    headers = {"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"}
+    base, token, entity, domain, service, data_json = get_ha_config(db)
+    if not (base and token):
+        raise HTTPException(400, "HA Base/Token not configured")
+    svc_url = f"{base}/api/services/{domain}/{service}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=15, verify=False) as client:
-        s = await client.post(svc_url, headers=headers, json=service_data)
+        s = await client.post(svc_url, headers=headers, json=data_json or {})
         if s.status_code not in (200, 201):
             raise HTTPException(s.status_code, f"HA service call failed: {s.text}")
     await asyncio.sleep(wait_seconds)
     return await ha_poll(payload, db)
+
+# ---------- Settings API (HA) ----------
+@app.get("/settings/ha", response_model=HASettingsOut)
+def get_ha_settings(db: Session = Depends(get_db)):
+    base = ENV_HA_BASE_URL or get_setting(db, "HA_BASE_URL")
+    entity = ENV_HA_ENTITY or get_setting(db, "HA_ODOMETER_ENTITY")
+    domain = ENV_HA_FORCE_DOMAIN or get_setting(db, "HA_FORCE_DOMAIN") or "kia_uvo"
+    service= ENV_HA_FORCE_SERVICE or get_setting(db, "HA_FORCE_SERVICE") or "force_update"
+    # token maskeras
+    token = ENV_HA_TOKEN or get_setting(db, "HA_TOKEN")
+    has_token = bool(token)
+    token_last4 = token[-4:] if token and len(token) >= 4 else None
+    return HASettingsOut(
+        base_url=base,
+        entity_id=entity,
+        force_domain=domain,
+        force_service=service,
+        has_token=has_token,
+        token_last4=token_last4
+    )
+
+@app.post("/settings/ha", response_model=HASettingsOut)
+def set_ha_settings(payload: HASettingsIn, db: Session = Depends(get_db)):
+    # Env har högre prio; men vi sparar i DB om angivet
+    if payload.base_url is not None:
+        set_setting(db, "HA_BASE_URL", payload.base_url)
+    if payload.entity_id is not None:
+        set_setting(db, "HA_ODOMETER_ENTITY", payload.entity_id)
+    if payload.force_domain is not None:
+        set_setting(db, "HA_FORCE_DOMAIN", payload.force_domain)
+    if payload.force_service is not None:
+        set_setting(db, "HA_FORCE_SERVICE", payload.force_service)
+    if payload.force_data_json is not None:
+        set_setting(db, "HA_FORCE_DATA", json.dumps(payload.force_data_json))
+    if payload.token:  # sparas, men returneras inte
+        set_setting(db, "HA_TOKEN", payload.token)
+
+    return get_ha_settings(db)
