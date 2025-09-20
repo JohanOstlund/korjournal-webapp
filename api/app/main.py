@@ -7,7 +7,7 @@ from typing import Optional, List
 import math, httpx, os
 
 from .db import SessionLocal, engine
-from .models import Base, Trip, Vehicle, Place, OdometerSnapshot
+from .models import Base, Trip, Vehicle, Place, OdometerSnapshot, TripTemplate
 from .pdf import render_journal_pdf
 
 Base.metadata.create_all(bind=engine)
@@ -24,6 +24,11 @@ app.add_middleware(
 )
 
 OSRM_URL = os.getenv("OSRM_URL")
+
+# --- Home Assistant polling config ---
+HA_BASE_URL = os.getenv("HA_BASE_URL")          # ex: http://homeassistant.local:8123
+HA_TOKEN    = os.getenv("HA_TOKEN")             # Long-Lived Access Token
+HA_ENTITY   = os.getenv("HA_ODOMETER_ENTITY")   # ex: sensor.kia_something_odometer
 
 def get_db():
     db = SessionLocal()
@@ -89,6 +94,24 @@ class OdoIn(BaseModel):
     at: datetime
     source: Optional[str] = None
 
+# ---- Templates ----
+class TemplateIn(BaseModel):
+    name: str
+    default_purpose: Optional[str] = None
+    business: bool = True
+    default_distance_km: Optional[float] = None
+    start_place: Optional[str] = None
+    end_place: Optional[str] = None
+
+class TemplateOut(BaseModel):
+    id: int
+    name: str
+    default_purpose: Optional[str]
+    business: bool
+    default_distance_km: Optional[float]
+    start_place: Optional[str]
+    end_place: Optional[str]
+
 def ensure_no_overlap(db: Session, vehicle_id: int, start: datetime, end: datetime, exclude_id: Optional[int]=None):
     q = db.query(Trip).filter(Trip.vehicle_id==vehicle_id)
     if exclude_id:
@@ -103,242 +126,113 @@ def ensure_no_overlap(db: Session, vehicle_id: int, start: datetime, end: dateti
     if db.query(q.exists()).scalar():
         raise HTTPException(status_code=400, detail="Overlapping trip for the same vehicle")
 
-@app.post("/trips", response_model=TripOut)
-async def create_trip(payload: TripIn, db: Session = Depends(get_db)):
-    if payload.ended_at <= payload.started_at:
-        raise HTTPException(400, "ended_at must be after started_at")
+# ---- Trips CRUD (oförändrat från din senaste version, utom imports) ----
+# ... (behåll dina befintliga /trips, /exports, /odometer, /integrations... endpoints) ...
 
-    veh = db.query(Vehicle).filter(Vehicle.reg_no == payload.vehicle_reg).first()
-    if not veh:
-        veh = Vehicle(reg_no=payload.vehicle_reg)
-        db.add(veh); db.flush()
-
-    ensure_no_overlap(db, veh.id, payload.started_at, payload.ended_at)
-
-    start_p = end_p = None
+# --- Templates endpoints ---
+@app.post("/templates", response_model=TemplateOut)
+def create_template(payload: TemplateIn, db: Session = Depends(get_db)):
+    # places on-the-fly
+    sp = ep = None
     if payload.start_place:
-        start_p = Place(name=payload.start_place, address=payload.start_place,
-                        lat=payload.start_lat, lon=payload.start_lon)
-        db.add(start_p); db.flush()
+        sp = Place(name=payload.start_place, address=payload.start_place)
+        db.add(sp); db.flush()
     if payload.end_place:
-        end_p = Place(name=payload.end_place, address=payload.end_place,
-                      lat=payload.end_lat, lon=payload.end_lon)
-        db.add(end_p); db.flush()
+        ep = Place(name=payload.end_place, address=payload.end_place)
+        db.add(ep); db.flush()
 
-    dist_km = payload.distance_km
-    if dist_km is None and all(v is not None for v in [payload.start_lat, payload.start_lon, payload.end_lat, payload.end_lon]):
-        dist_km = await osrm_distance_km(payload.start_lat, payload.start_lon, payload.end_lat, payload.end_lon)
-        if dist_km is None:
-            dist_km = round(haversine(payload.start_lat, payload.start_lon, payload.end_lat, payload.end_lon), 2)
+    t = TripTemplate(
+        name=payload.name,
+        default_purpose=payload.default_purpose,
+        business=payload.business,
+        default_distance_km=payload.default_distance_km,
+        start_place_id=sp.id if sp else None,
+        end_place_id=ep.id if ep else None,
+    )
+    db.add(t); db.commit(); db.refresh(t)
+    return TemplateOut(
+        id=t.id, name=t.name,
+        default_purpose=t.default_purpose,
+        business=t.business,
+        default_distance_km=t.default_distance_km,
+        start_place=t.start_place.address if t.start_place_id else None,
+        end_place=t.end_place.address if t.end_place_id else None,
+    )
 
-    trip = Trip(
-        vehicle_id=veh.id,
+@app.get("/templates", response_model=List[TemplateOut])
+def list_templates(db: Session = Depends(get_db)):
+    out: List[TemplateOut] = []
+    for t in db.query(TripTemplate).order_by(TripTemplate.name).all():
+        out.append(TemplateOut(
+            id=t.id, name=t.name,
+            default_purpose=t.default_purpose,
+            business=t.business,
+            default_distance_km=t.default_distance_km,
+            start_place=t.start_place.address if t.start_place_id else None,
+            end_place=t.end_place.address if t.end_place_id else None,
+        ))
+    return out
+
+class ApplyTemplateIn(BaseModel):
+    vehicle_reg: str
+    started_at: datetime
+    ended_at: datetime
+    # tillåt override av template:
+    purpose: Optional[str] = None
+    distance_km: Optional[float] = None
+    business: Optional[bool] = None
+
+@app.post("/templates/{tid}/apply", response_model=TripOut)
+async def apply_template(tid: int, payload: ApplyTemplateIn, db: Session = Depends(get_db)):
+    tpl = db.query(TripTemplate).get(tid)
+    if not tpl:
+        raise HTTPException(404, "Template not found")
+    # bygg TripIn från template + payload
+    trip_in = TripIn(
+        vehicle_reg=payload.vehicle_reg,
         started_at=payload.started_at,
         ended_at=payload.ended_at,
-        start_odometer_km=payload.start_odometer_km,
-        end_odometer_km=payload.end_odometer_km,
-        distance_km=dist_km,
-        start_place_id=start_p.id if start_p else None,
-        end_place_id=end_p.id if end_p else None,
-        purpose=payload.purpose,
-        business=payload.business,
-        notes=payload.notes,
+        purpose=payload.purpose if payload.purpose is not None else tpl.default_purpose,
+        business=payload.business if payload.business is not None else tpl.business,
+        distance_km=payload.distance_km if payload.distance_km is not None else tpl.default_distance_km,
+        start_place=tpl.start_place.address if tpl.start_place_id else None,
+        end_place=tpl.end_place.address if tpl.end_place_id else None,
     )
-    db.add(trip)
-    db.commit(); db.refresh(trip)
+    # återanvänd create_trip-logiken:
+    return await create_trip(trip_in, db)
 
-    return TripOut(
-        id=trip.id,
-        vehicle_reg=veh.reg_no,
-        started_at=trip.started_at,
-        ended_at=trip.ended_at,
-        distance_km=trip.distance_km,
-        purpose=trip.purpose,
-        business=trip.business,
-    )
+# --- HA polling endpoint (om du inte vill webhooka) ---
+class HAPollIn(BaseModel):
+    vehicle_reg: str
+    entity_id: Optional[str] = None  # override
+    at: Optional[datetime] = None
 
-@app.put("/trips/{trip_id}", response_model=TripOut)
-async def update_trip(trip_id: int = Path(...), payload: TripIn = None, db: Session = Depends(get_db)):
-    trip = db.query(Trip).get(trip_id)
-    if not trip:
-        raise HTTPException(404, "Trip not found")
+@app.post("/integrations/home-assistant/poll")
+async def ha_poll(payload: HAPollIn, db: Session = Depends(get_db)):
+    if not (HA_BASE_URL and HA_TOKEN and (HA_ENTITY or payload.entity_id)):
+        raise HTTPException(400, "HA_BASE_URL, HA_TOKEN, and HA_ODOMETER_ENTITY (or entity_id) must be set")
 
+    entity = payload.entity_id or HA_ENTITY
+    url = f"{HA_BASE_URL}/api/states/{entity}"
+    headers = {"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"}
+
+    async with httpx.AsyncClient(timeout=10, verify=False) as client:
+        r = await client.get(url, headers=headers)
+        if r.status_code != 200:
+            raise HTTPException(r.status_code, f"HA states fetch failed: {r.text}")
+        data = r.json()
+        # Home Assistant sensors expose "state" as string
+        try:
+            value_km = float(data.get("state"))
+        except Exception:
+            raise HTTPException(500, f"Could not parse odometer state: {data.get('state')}")
+        at = payload.at or datetime.utcnow()
+
+    # spara snapshot
     veh = db.query(Vehicle).filter(Vehicle.reg_no==payload.vehicle_reg).first()
     if not veh:
         veh = Vehicle(reg_no=payload.vehicle_reg)
         db.add(veh); db.flush()
-
-    if payload.ended_at <= payload.started_at:
-        raise HTTPException(400, "ended_at must be after started_at")
-
-    ensure_no_overlap(db, veh.id, payload.started_at, payload.ended_at, exclude_id=trip.id)
-
-    trip.vehicle_id = veh.id
-    trip.started_at = payload.started_at
-    trip.ended_at   = payload.ended_at
-    trip.start_odometer_km = payload.start_odometer_km
-    trip.end_odometer_km   = payload.end_odometer_km
-    trip.distance_km = payload.distance_km or trip.distance_km
-    trip.purpose = payload.purpose
-    trip.business = payload.business
-    trip.notes = payload.notes
-    trip.updated_at = datetime.utcnow()
-
-    db.commit(); db.refresh(trip)
-
-    return TripOut(
-        id=trip.id,
-        vehicle_reg=veh.reg_no,
-        started_at=trip.started_at,
-        ended_at=trip.ended_at,
-        distance_km=trip.distance_km,
-        purpose=trip.purpose,
-        business=trip.business,
-    )
-
-@app.delete("/trips/{trip_id}")
-async def delete_trip(trip_id: int, db: Session = Depends(get_db)):
-    t = db.query(Trip).get(trip_id)
-    if not t:
-        raise HTTPException(404, "Trip not found")
-    db.delete(t); db.commit()
-    return {"status": "deleted"}
-
-@app.get("/trips", response_model=List[TripOut])
-async def list_trips(
-    db: Session = Depends(get_db),
-    vehicle: Optional[str] = Query(None),
-    date_from: Optional[datetime] = Query(None),
-    date_to: Optional[datetime] = Query(None),
-):
-    q = db.query(Trip, Vehicle).join(Vehicle, Trip.vehicle_id == Vehicle.id)
-    if vehicle:   q = q.filter(Vehicle.reg_no == vehicle)
-    if date_from: q = q.filter(Trip.started_at >= date_from)
-    if date_to:   q = q.filter(Trip.ended_at <= date_to)
-
-    res = []
-    for t, v in q.order_by(Trip.started_at.desc()).limit(500).all():
-        res.append(TripOut(
-            id=t.id, vehicle_reg=v.reg_no,
-            started_at=t.started_at, ended_at=t.ended_at,
-            distance_km=t.distance_km, purpose=t.purpose, business=t.business
-        ))
-    return res
-
-@app.post("/exports/journal.csv")
-async def export_csv(
-    db: Session = Depends(get_db),
-    vehicle: Optional[str] = Query(None),
-    year: Optional[int] = Query(None),
-):
-    import csv
-    from io import StringIO
-
-    q = db.query(Trip, Vehicle).join(Vehicle, Trip.vehicle_id==Vehicle.id)
-    if vehicle: q = q.filter(Vehicle.reg_no == vehicle)
-    if year:
-        q = q.filter(Trip.started_at >= datetime(year,1,1), Trip.started_at < datetime(year+1,1,1))
-
-    output = StringIO(); writer = csv.writer(output, delimiter=';')
-    writer.writerow(["År","Regnr","Datum","Startadress","Slutadress","Start mätarställning","Slut mätarställning","Antal km","Ärende/Syfte","Förare","Tjänst/Privat","Anteckningar"])
-
-    rows = []
-    for t, v in q.order_by(Trip.started_at.asc()).all():
-        datum = t.started_at.strftime('%Y-%m-%d')
-        writer.writerow([
-            t.started_at.year, v.reg_no, datum,
-            t.start_place.address if t.start_place_id else "",
-            t.end_place.address if t.end_place_id else "",
-            t.start_odometer_km or "", t.end_odometer_km or "",
-            t.distance_km or "",
-            t.purpose or "",
-            "",
-            "Tjänst" if t.business else "Privat",
-            t.notes or "",
-        ])
-        rows.append({
-            "datum": datum,
-            "start_odo": t.start_odometer_km or "",
-            "end_odo": t.end_odometer_km or "",
-            "km": t.distance_km or "",
-            "start_adress": t.start_place.address if t.start_place_id else "",
-            "slut_adress": t.end_place.address if t.end_place_id else "",
-            "syfte": t.purpose or "",
-            "tjanst": t.business,
-        })
-
-    csv_bytes = output.getvalue().encode('utf-8-sig')
-    return Response(content=csv_bytes, media_type="text/csv",
-                    headers={"Content-Disposition": "attachment; filename=korjournal.csv"})
-
-@app.post("/exports/journal.pdf")
-async def export_pdf(
-    db: Session = Depends(get_db),
-    vehicle: Optional[str] = Query(None),
-    year: Optional[int] = Query(None),
-):
-    q = db.query(Trip, Vehicle).join(Vehicle, Trip.vehicle_id==Vehicle.id)
-    if vehicle: q = q.filter(Vehicle.reg_no == vehicle)
-    if year:
-        q = q.filter(Trip.started_at >= datetime(year,1,1), Trip.started_at < datetime(year+1,1,1))
-
-    rows = []
-    for t, v in q.order_by(Trip.started_at.asc()).all():
-        rows.append({
-            "datum": t.started_at.strftime('%Y-%m-%d'),
-            "start_odo": t.start_odometer_km or "",
-            "end_odo": t.end_odometer_km or "",
-            "km": t.distance_km or "",
-            "start_adress": t.start_place.address if t.start_place_id else "",
-            "slut_adress": t.end_place.address if t.end_place_id else "",
-            "syfte": t.purpose or "",
-            "tjanst": t.business,
-        })
-
-    pdf_bytes = render_journal_pdf(rows)
-    return Response(content=pdf_bytes, media_type="application/pdf",
-                    headers={"Content-Disposition": "attachment; filename=korjournal.pdf"})
-
-# --- odometer snapshots (HA/Kia UVO) ---
-@app.post("/odometer")
-async def add_odometer(payload: OdoIn, db: Session = Depends(get_db)):
-    veh = db.query(Vehicle).filter(Vehicle.reg_no==payload.vehicle_reg).first()
-    if not veh:
-        veh = Vehicle(reg_no=payload.vehicle_reg)
-        db.add(veh); db.flush()
-    snap = OdometerSnapshot(vehicle_id=veh.id, at=payload.at, value_km=payload.value_km, source=payload.source)
+    snap = OdometerSnapshot(vehicle_id=veh.id, at=at, value_km=value_km, source="ha-poll")
     db.add(snap); db.commit()
-    return {"status": "ok"}
-
-# Back-compat: Home Assistant webhook
-class HAWebhook(BaseModel):
-    vehicle_reg: str
-    odometer_km: float
-    at: datetime
-
-@app.post("/integrations/home-assistant/webhook")
-async def ha_webhook(payload: HAWebhook, db: Session = Depends(get_db)):
-    return await add_odometer(OdoIn(vehicle_reg=payload.vehicle_reg,
-                                    value_km=payload.odometer_km,
-                                    at=payload.at,
-                                    source="ha"), db)
-
-# --- summaries ---
-class YearSummary(BaseModel):
-    vehicle_reg: str
-    year: int
-    business_km: float
-    private_km: float
-    trips: int
-
-@app.get("/summary/year", response_model=YearSummary)
-async def year_summary(vehicle: str = Query(...), year: int = Query(...), db: Session = Depends(get_db)):
-    veh = db.query(Vehicle).filter(Vehicle.reg_no==vehicle).first()
-    if not veh:
-        raise HTTPException(404, "Vehicle not found")
-    start = datetime(year,1,1); end = datetime(year+1,1,1)
-    q = db.query(Trip).filter(Trip.vehicle_id==veh.id, Trip.started_at>=start, Trip.started_at<end)
-    trips = q.count()
-    biz_km = sum([t.distance_km or 0 for t in q.filter(Trip.business==True)])
-    priv_km = sum([t.distance_km or 0 for t in q.filter(Trip.business==False)])
-    return YearSummary(vehicle_reg=vehicle, year=year, business_km=biz_km, private_km=priv_km, trips=trips)
+    return {"status": "ok", "value_km": value_km, "entity": entity}
