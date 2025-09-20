@@ -28,14 +28,15 @@ export default function Home() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [vehicle, setVehicle] = useState('ABC123');
 
+  // OBS: inget separat Regnr i formuläret – vi använder bara `vehicle` högst upp
   const [form, setForm] = useState({
-    vehicle_reg: 'ABC123',
     started_at: '',
     ended_at: '',
     purpose: 'Kundbesök',
     business: true,
     distance_km: '',
   });
+
   const [editId, setEditId] = useState<number | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<number | 'new' | ''>('');
 
@@ -53,9 +54,11 @@ export default function Home() {
     const r = await fetch(`${API}/templates`);
     setTemplates(await r.json());
   };
+
   useEffect(() => { loadTrips(); }, [vehicle]);
   useEffect(() => { loadTemplates(); }, []);
 
+  // Helpers
   const round1 = (n: number) => Math.round(n * 10) / 10;
   const toLocalInputValue = (d: Date) => {
     const pad = (x:number)=> String(x).padStart(2,'0');
@@ -78,6 +81,7 @@ export default function Home() {
       }));
     }
   };
+
   const createTemplate = async () => {
     const name = prompt('Namn på mall (ex: "Pendling Järfälla → Norrtälje")?');
     if (!name) return;
@@ -105,7 +109,7 @@ export default function Home() {
       const data = await res.json();
       const now = new Date();
       setStartOdo(data.value_km); setEndOdo(null);
-      setForm(f => ({ ...f, vehicle_reg: vehicle, started_at: toLocalInputValue(now), ended_at: '', distance_km: '' }));
+      setForm(f => ({ ...f, started_at: toLocalInputValue(now), ended_at: '', distance_km: '' }));
     } finally { setStarting(false); }
   };
 
@@ -168,7 +172,7 @@ export default function Home() {
     } finally { setStopping(false); }
   };
 
-  // Manuell edit/CRUD (utan duplicerat Regnr-fält)
+  // Manuell CRUD (utan regnr-fält i formuläret)
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const payload: any = {
@@ -195,7 +199,6 @@ export default function Home() {
     setSelectedTemplate(''); setStartOdo(null); setEndOdo(null);
     setVehicle(t.vehicle_reg);
     setForm({
-      vehicle_reg: t.vehicle_reg,
       started_at: t.started_at.slice(0,16),
       ended_at: t.ended_at.slice(0,16),
       purpose: t.purpose || '',
@@ -215,16 +218,17 @@ export default function Home() {
 
   return (
     <div>
-      {/* ENDA regnr-fältet */}
+      {/* ENDA regnr-fältet – överst */}
       <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
         <label>
           Regnr
-          <input value={vehicle} onChange={e=>{ setVehicle(e.target.value); }} />
+          <input value={vehicle} onChange={e=> setVehicle(e.target.value)} />
         </label>
         <button onClick={exportCsv}>Exportera CSV</button>
         <button onClick={exportPdf}>Exportera PDF</button>
       </div>
 
+      {/* Mall */}
       <div style={{ marginTop: 12 }}>
         <label>
           Mall
@@ -254,7 +258,7 @@ export default function Home() {
         )}
       </div>
 
-      {/* Manuell form (utan regnr-fält) */}
+      {/* Manuell form – utan regnr */}
       <form onSubmit={submit} style={{ display: 'grid', gap: 8, marginTop: 16 }}>
         <label>
           Start
