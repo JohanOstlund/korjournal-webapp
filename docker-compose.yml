@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  api:
+    build: ./api
+    container_name: korjournal-api
+    environment:
+      - PORT=8080
+      - DB_URL=sqlite:////data/korjournal.db  # Byt till Postgres senare vid behov
+      - OSRM_URL=
+      - CORS_ORIGINS=http://localhost:3000
+    volumes:
+      - api_data:/data
+    ports:
+      - "8080:8080"
+
+  web:
+    build: ./web
+    container_name: korjournal-web
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+
+volumes:
+  api_data:
