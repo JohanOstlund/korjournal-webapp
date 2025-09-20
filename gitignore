@@ -1,0 +1,14 @@
+# Ignorera lokala miljöfiler
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+.next/
+
+# Docker
+*.log
+docker-data/
