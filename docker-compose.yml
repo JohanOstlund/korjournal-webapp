@@ -9,6 +9,11 @@ services:
       - DB_URL=sqlite:////data/korjournal.db  # Byt till Postgres senare vid behov
       - OSRM_URL=
       - CORS_ORIGINS=http://192.168.1.24:3000
+      - HA_BASE_URL=http://homeassistant.local:8123
+      - HA_TOKEN=LLAT_xxx...            # Home Assistant Long-Lived Access Token
+      - HA_ODOMETER_ENTITY=sensor.niro_odometer
+      - HA_FORCE_DOMAIN=kia_uvo
+      - HA_FORCE_SERVICE=force_update
     volumes:
       - api_data:/data
     ports:
