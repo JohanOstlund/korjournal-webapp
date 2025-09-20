@@ -62,3 +62,20 @@ class OdometerSnapshot(Base):
     at: Mapped[datetime] = mapped_column(DateTime)
     value_km: Mapped[float] = mapped_column(Float)
     source: Mapped[Optional[str]] = mapped_column(String(50))  # 'kia_uvo','manual','ha'
+
+class TripTemplate(Base):
+    __tablename__ = "trip_templates"
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    name: Mapped[str] = mapped_column(String(120), unique=True, index=True)  # t.ex. "Järfälla ↔ Norrtälje"
+    default_purpose: Mapped[Optional[str]] = mapped_column(String(255))
+    business: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # valfria förifyllningar (om du vill att template sätter dessa)
+    default_distance_km: Mapped[Optional[float]] = mapped_column(Float)
+
+    start_place_id: Mapped[Optional[int]] = mapped_column(ForeignKey("places.id"))
+    end_place_id: Mapped[Optional[int]] = mapped_column(ForeignKey("places.id"))
+
+    start_place: Mapped[Optional["Place"]] = relationship(foreign_keys=[start_place_id])
+    end_place:   Mapped[Optional["Place"]] = relationship(foreign_keys=[end_place_id])
