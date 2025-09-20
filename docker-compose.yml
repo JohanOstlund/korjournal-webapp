@@ -8,7 +8,7 @@ services:
       - PORT=8080
       - DB_URL=sqlite:////data/korjournal.db  # Byt till Postgres senare vid behov
       - OSRM_URL=
-      - CORS_ORIGINS=http://localhost:3000
+      - CORS_ORIGINS=http://192.168.1.24:3000
     volumes:
       - api_data:/data
     ports:
@@ -18,7 +18,7 @@ services:
     build: ./web
     container_name: korjournal-web
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8080
+      - NEXT_PUBLIC_API_URL=http://192.168.1.24:8080
     depends_on:
       - api
     ports:
