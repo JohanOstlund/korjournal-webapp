@@ -1,3 +1,4 @@
+from fastapi.encoders import jsonable_encoder
 from fastapi import FastAPI, Depends, Query, Response, HTTPException, Path
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
