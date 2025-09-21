@@ -3,7 +3,7 @@ from fastapi import FastAPI, Depends, Query, Response, HTTPException, Path
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, text
 from datetime import datetime
 from typing import Optional, List, Tuple
 import math, httpx, os, asyncio, json
@@ -571,3 +571,19 @@ def set_ha_settings(payload: HASettingsIn, db: Session = Depends(get_db)):
     if payload.token:
         set_setting(db, "HA_TOKEN", payload.token)
     return get_ha_settings(db)
+
+@app.get("/health")
+def health(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+        return {"status": "ok"}
+    except Exception as e:
+        # syns i docker logs -f api
+        print("HEALTHCHECK DB ERROR:", repr(e))
+        return JSONResponse({"status": "db_error", "error": str(e)}, status_code=500)
+
+@app.get("/db-info")
+def db_info():
+    # enkel felsökning: se vilken driver/host vi kör mot
+    from .db import engine
+    return {"engine": str(engine.url).split("?")[0]}
