@@ -20,28 +20,28 @@ services:
       HA_ODOMETER_ENTITY: ${HA_ODOMETER_ENTITY:?set HA_ODOMETER_ENTITY}
       HA_FORCE_DOMAIN: ${HA_FORCE_DOMAIN:-kia_uvo}
       HA_FORCE_SERVICE: ${HA_FORCE_SERVICE:-force_update}
-      # Default JSON om inget satt i .env (måste vara citerat pga YAML)
       HA_FORCE_DATA: "${HA_FORCE_DATA:-{\"entity_id\":\"sensor.kia_uvo_odometer\"}}"
 
-      # --- (valfritt) OSRM för ruttbaserad sträcka ---
+      # --- (valfritt) OSRM ---
       # OSRM_URL: ${OSRM_URL}
     ports:
       - "${API_PORT:-8080}:8080"
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health >/dev/null || exit 1"]
+      # Använd Python som redan finns i imagen
+      test: ["CMD-SHELL", "python -c 'import urllib.request,sys; sys.exit(0) if urllib.request.urlopen(\"http://localhost:8080/health\").getcode()==200 else sys.exit(1)'"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 20
+      start_period: 30s
 
   web:
     build:
       context: ./web
+      dockerfile: Dockerfile
     container_name: korjournal-web
     restart: unless-stopped
     environment:
-      # Peka webben mot API:t via serverns publika adress
       NEXT_PUBLIC_API_URL: "http://${SERVER_HOST:?set SERVER_HOST}:${API_PORT:-8080}"
-      # NODE_ENV: production
     ports:
       - "${WEB_PORT:-3001}:3000"
     depends_on:
