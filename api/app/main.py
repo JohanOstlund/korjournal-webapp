@@ -328,8 +328,12 @@ async def list_trips(
             end_odometer_km=t.end_odometer_km,
             purpose=t.purpose, business=t.business
         ))
-    # Viktigt: no-store så listan uppdateras direkt i webben
-    response = JSONResponse(content=[r.model_dump() for r in res])
+
+    # Viktigt: jsonable_encoder för att serialisera datetime → ISO-strängar
+    payload = jsonable_encoder([r for r in res])
+
+    from fastapi.responses import JSONResponse
+    response = JSONResponse(content=payload)
     response.headers["Cache-Control"] = "no-store"
     return response
 
