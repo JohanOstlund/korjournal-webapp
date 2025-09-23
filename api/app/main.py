@@ -97,15 +97,13 @@ class TripIn(BaseModel):
   start_odometer_km: Optional[float] = None
   end_odometer_km: Optional[float] = None
   distance_km: Optional[float] = None
-  start_place: Optional[str] = None
-  end_place: Optional[str] = None
-  start_lat: Optional[float] = None
-  start_lon: Optional[float] = None
-  end_lat: Optional[float] = None
-  end_lon: Optional[float] = None
   purpose: Optional[str] = None
   business: bool = True
   notes: Optional[str] = None
+  # NYTT
+  driver_name: Optional[str] = None
+  start_address: Optional[str] = None
+  end_address: Optional[str] = None
 
 class TripOut(BaseModel):
   id: int
@@ -117,6 +115,11 @@ class TripOut(BaseModel):
   end_odometer_km: Optional[float]
   purpose: Optional[str]
   business: bool
+  notes: Optional[str] = None
+  # NYTT
+  driver_name: Optional[str] = None
+  start_address: Optional[str] = None
+  end_address: Optional[str] = None
   class Config:
     from_attributes = True
 
@@ -126,6 +129,9 @@ class StartTripIn(BaseModel):
   start_odometer_km: Optional[float] = None
   purpose: Optional[str] = None
   business: bool = True
+  # NYTT
+  driver_name: Optional[str] = None
+  start_address: Optional[str] = None
 
 class FinishTripIn(BaseModel):
   vehicle_reg: Optional[str] = None
@@ -135,6 +141,9 @@ class FinishTripIn(BaseModel):
   distance_km: Optional[float] = None
   purpose: Optional[str] = None
   business: Optional[bool] = None
+  # NYTT
+  driver_name: Optional[str] = None
+  end_address: Optional[str] = None
 
 class OdoIn(BaseModel):
   vehicle_reg: str
@@ -232,13 +241,17 @@ def start_trip(payload: StartTripIn, db: Session = Depends(get_db)):
     start_odometer_km=payload.start_odometer_km,
     purpose=payload.purpose,
     business=payload.business,
+    # nytt
+    driver_name=payload.driver_name,
+    start_address=payload.start_address,
   )
   db.add(trip); db.commit(); db.refresh(trip)
 
   return TripOut(
     id=trip.id, vehicle_reg=veh.reg_no, started_at=trip.started_at, ended_at=None,
     distance_km=None, start_odometer_km=trip.start_odometer_km, end_odometer_km=None,
-    purpose=trip.purpose, business=trip.business
+    purpose=trip.purpose, business=trip.business,
+    driver_name=trip.driver_name, start_address=trip.start_address, end_address=trip.end_address
   )
 
 @app.post("/trips/finish", response_model=TripOut)
@@ -266,6 +279,11 @@ def finish_trip(payload: FinishTripIn, db: Session = Depends(get_db)):
     t.purpose = payload.purpose
   if payload.business is not None:
     t.business = payload.business
+  # nytt
+  if payload.driver_name is not None and not t.driver_name:
+    t.driver_name = payload.driver_name
+  if payload.end_address is not None:
+    t.end_address = payload.end_address
 
   km = payload.distance_km
   if km is None:
@@ -279,7 +297,8 @@ def finish_trip(payload: FinishTripIn, db: Session = Depends(get_db)):
   return TripOut(
     id=t.id, vehicle_reg=veh.reg_no, started_at=t.started_at, ended_at=t.ended_at,
     distance_km=t.distance_km, start_odometer_km=t.start_odometer_km, end_odometer_km=t.end_odometer_km,
-    purpose=t.purpose, business=t.business
+    purpose=t.purpose, business=t.business,
+    driver_name=t.driver_name, start_address=t.start_address, end_address=t.end_address
   )
 
 # ---------- CRUD ----------
@@ -309,6 +328,9 @@ def create_trip(payload: TripIn, db: Session = Depends(get_db)):
     purpose=payload.purpose,
     business=payload.business,
     notes=payload.notes,
+    driver_name=payload.driver_name,
+    start_address=payload.start_address,
+    end_address=payload.end_address,
   )
   db.add(trip); db.commit(); db.refresh(trip)
 
@@ -319,6 +341,8 @@ def create_trip(payload: TripIn, db: Session = Depends(get_db)):
     start_odometer_km=trip.start_odometer_km,
     end_odometer_km=trip.end_odometer_km,
     purpose=trip.purpose, business=trip.business,
+    notes=trip.notes,
+    driver_name=trip.driver_name, start_address=trip.start_address, end_address=trip.end_address
   )
 
 @app.put("/trips/{trip_id}", response_model=TripOut)
@@ -350,6 +374,9 @@ def update_trip(trip_id: int = Path(...), payload: TripIn = None, db: Session = 
   trip.purpose = payload.purpose
   trip.business = payload.business
   trip.notes = payload.notes
+  trip.driver_name = payload.driver_name
+  trip.start_address = payload.start_address
+  trip.end_address = payload.end_address
   trip.updated_at = datetime.utcnow()
 
   db.commit(); db.refresh(trip)
@@ -364,6 +391,8 @@ def update_trip(trip_id: int = Path(...), payload: TripIn = None, db: Session = 
     end_odometer_km=trip.end_odometer_km,
     purpose=trip.purpose,
     business=trip.business,
+    notes=trip.notes,
+    driver_name=trip.driver_name, start_address=trip.start_address, end_address=trip.end_address
   )
 
 @app.delete("/trips/{trip_id}")
@@ -397,6 +426,10 @@ def list_trips(
       "end_odometer_km": t.end_odometer_km,
       "purpose": t.purpose,
       "business": t.business,
+      "notes": t.notes,
+      "driver_name": t.driver_name,
+      "start_address": t.start_address,
+      "end_address": t.end_address,
     })
 
   payload = jsonable_encoder(res)
@@ -465,6 +498,9 @@ def apply_template(tpl_id: int, payload: TripIn, db: Session = Depends(get_db)):
     distance_km=dist_km,
     purpose=payload.purpose or tpl.default_purpose,
     business=payload.business if payload.business is not None else tpl.business,
+    driver_name=payload.driver_name,
+    start_address=payload.start_address,
+    end_address=payload.end_address,
   )
   db.add(trip); db.commit(); db.refresh(trip)
   return TripOut(
@@ -473,7 +509,8 @@ def apply_template(tpl_id: int, payload: TripIn, db: Session = Depends(get_db)):
     distance_km=trip.distance_km,
     start_odometer_km=trip.start_odometer_km,
     end_odometer_km=trip.end_odometer_km,
-    purpose=trip.purpose, business=trip.business
+    purpose=trip.purpose, business=trip.business,
+    driver_name=trip.driver_name, start_address=trip.start_address, end_address=trip.end_address
   )
 
 # ---------- Exports ----------
@@ -496,16 +533,17 @@ def export_csv(
   writer.writerow(["År","Regnr","Datum","Startadress","Slutadress","Start mätarställning","Slut mätarställning","Antal km","Ärende/Syfte","Förare","Tjänst/Privat","Anteckningar"])
 
   for t, v in q.order_by(Trip.started_at.asc()).all():
-    datum = t.started_at.strftime('%Y-%m-%d')
+    datum = t.started_at.strftime('%Y-%m-%d') if t.started_at else ""
+    start_addr = t.start_address or (t.start_place.address if t.start_place_id and t.start_place else "")
+    end_addr   = t.end_address   or (t.end_place.address   if t.end_place_id   and t.end_place   else "")
     writer.writerow([
       t.started_at.year if t.started_at else "",
       v.reg_no, datum,
-      t.start_place.address if t.start_place_id else "",
-      t.end_place.address if t.end_place_id else "",
+      start_addr, end_addr,
       t.start_odometer_km or "", t.end_odometer_km or "",
       t.distance_km or "",
       t.purpose or "",
-      "",
+      t.driver_name or "",
       "Tjänst" if t.business else "Privat",
       t.notes or "",
     ])
@@ -533,8 +571,8 @@ def export_pdf_endpoint(
       "start_odo": t.start_odometer_km or "",
       "end_odo": t.end_odometer_km or "",
       "km": t.distance_km or "",
-      "start_adress": t.start_place.address if t.start_place_id else "",
-      "slut_adress": t.end_place.address if t.end_place_id else "",
+      "start_adress": t.start_address or (t.start_place.address if t.start_place_id and t.start_place else ""),
+      "slut_adress": t.end_address   or (t.end_place.address   if t.end_place_id   and t.end_place   else ""),
       "syfte": t.purpose or "",
       "tjanst": t.business,
     })

@@ -22,19 +22,26 @@ class Trip(Base):
     __tablename__ = "trips"
     id = Column(Integer, primary_key=True)
     vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=False, index=True)
+
     started_at = Column(DateTime, nullable=False, index=True)
-    ended_at = Column(DateTime, nullable=True, index=True)  # <-- NULL = pågående resa
+    ended_at = Column(DateTime, nullable=True, index=True)  # NULL = pågående
 
     start_odometer_km = Column(Float)
     end_odometer_km = Column(Float)
     distance_km = Column(Float)
 
+    # (gamla relationsfält – kan nyttjas senare om du vill koppla Places)
     start_place_id = Column(Integer, ForeignKey("places.id"))
     end_place_id = Column(Integer, ForeignKey("places.id"))
 
     purpose = Column(String(255))
     business = Column(Boolean, default=True)
     notes = Column(Text)
+
+    # NYTT: förare + fria adresser
+    driver_name = Column(String(255), nullable=True)
+    start_address = Column(String(255), nullable=True)
+    end_address   = Column(String(255), nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

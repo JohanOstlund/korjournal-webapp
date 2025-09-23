@@ -13,6 +13,11 @@ type Trip = {
   end_odometer_km?: number | null;
   purpose?: string | null;
   business: boolean;
+  notes?: string | null;
+  // NYTT
+  driver_name?: string | null;
+  start_address?: string | null;
+  end_address?: string | null;
 };
 
 type Template = {
@@ -27,9 +32,7 @@ type Template = {
 const parseServerDate = (isoOrNaive: string | null): Date | null => {
   if (!isoOrNaive) return null;
   const s = isoOrNaive.trim();
-  // Har strängen redan Z eller ±hh:mm?
   if (/[zZ]$/.test(s) || /[+-]\d{2}:\d{2}$/.test(s)) return new Date(s);
-  // Annars: anta att servern levererar UTC utan tz → lägg till Z
   return new Date(s + 'Z');
 };
 
@@ -45,9 +48,15 @@ export default function Home() {
   const [vehicle, setVehicle] = useState(''); // tomt = visa alla
   const [status, setStatus] = useState<string>('');
 
-  // Formfält (manuell fallback)
+  // Formfält
   const [purpose, setPurpose] = useState<string>('Pendling arbete');
   const [business, setBusiness] = useState<boolean>(true);
+  const [notes, setNotes] = useState<string>('');
+
+  // NYTT: Förare + adresser
+  const [driver, setDriver] = useState<string>('');
+  const [startAddress, setStartAddress] = useState<string>('');
+  const [endAddress, setEndAddress] = useState<string>('');
 
   // Odo-fält (kan fyllas av HA eller manuellt)
   const [startOdo, setStartOdo] = useState<number | null>(null);
@@ -133,6 +142,10 @@ export default function Home() {
         start_odometer_km: odo ?? undefined,
         purpose: purpose || undefined,
         business,
+        notes: notes || undefined,
+        // nytt
+        driver_name: driver || undefined,
+        start_address: startAddress || undefined,
       };
       const r = await fetch(`${API}/trips/start`, {
         method: 'POST',
@@ -168,6 +181,10 @@ export default function Home() {
         end_odometer_km: endVal ?? undefined,
         purpose: purpose || undefined,
         business,
+        notes: notes || undefined,
+        // nytt
+        driver_name: driver || activeTrip.driver_name || undefined,
+        end_address: endAddress || undefined,
       };
       const r = await fetch(`${API}/trips/finish`, {
         method: 'POST',
@@ -237,6 +254,26 @@ export default function Home() {
           Tjänst
           <input type="checkbox" checked={business} onChange={e=>setBusiness(e.target.checked)} />
         </label>
+        <label>
+          Anteckningar
+          <input value={notes} onChange={e=>setNotes(e.target.value)} />
+        </label>
+      </div>
+
+      {/* NYTT: Förare + adresser */}
+      <div style={{ display:'grid', gap:8, marginTop:12, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
+        <label>
+          Förare
+          <input value={driver} onChange={e=>setDriver(e.target.value)} />
+        </label>
+        <label>
+          Startadress
+          <input value={startAddress} onChange={e=>setStartAddress(e.target.value)} />
+        </label>
+        <label>
+          Slutadress
+          <input value={endAddress} onChange={e=>setEndAddress(e.target.value)} />
+        </label>
       </div>
 
       {/* Pågående resa – panel */}
@@ -246,8 +283,11 @@ export default function Home() {
             <div>
               <strong>Pågående resa</strong> — {activeTrip.vehicle_reg} • start {fmtLocal(activeTrip.started_at)}
               <div style={{ color:'#444', marginTop: 6 }}>
+                Förare: <strong>{activeTrip.driver_name || driver || '-'}</strong>
+                {' • '}
                 Start-odo: <strong>{activeTrip.start_odometer_km ?? startOdo ?? '-'}</strong>
                 {activeKmLive != null && <> • Km (auto): <strong>{activeKmLive}</strong></>}
+                { (activeTrip.start_address || startAddress) && <> • Startadress: <strong>{activeTrip.start_address || startAddress}</strong></> }
               </div>
             </div>
             <div style={{ display:'flex', gap:8, alignItems:'center' }}>
@@ -299,6 +339,9 @@ export default function Home() {
               <th align="left">Start</th>
               <th align="left">Slut</th>
               <th align="left">Regnr</th>
+              <th align="left">Förare</th>
+              <th align="left">Startadress</th>
+              <th align="left">Slutadress</th>
               <th align="left">Start-odo</th>
               <th align="left">Slut-odo</th>
               <th align="left">Km</th>
@@ -312,6 +355,9 @@ export default function Home() {
                 <td>{fmtLocal(t.started_at)}</td>
                 <td>{t.ended_at ? fmtLocal(t.ended_at) : <em>Pågående…</em>}</td>
                 <td>{t.vehicle_reg}</td>
+                <td>{t.driver_name || ''}</td>
+                <td>{t.start_address || ''}</td>
+                <td>{t.end_address || ''}</td>
                 <td>{t.start_odometer_km ?? '-'}</td>
                 <td>{t.ended_at ? (t.end_odometer_km ?? '-') : <em>–</em>}</td>
                 <td>{t.ended_at ? (t.distance_km ?? '-') : <em>Pågår</em>}</td>
