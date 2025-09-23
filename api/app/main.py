@@ -99,7 +99,6 @@ class TripIn(BaseModel):
   distance_km: Optional[float] = None
   purpose: Optional[str] = None
   business: bool = True
-  notes: Optional[str] = None
   # NYTT
   driver_name: Optional[str] = None
   start_address: Optional[str] = None
@@ -115,7 +114,6 @@ class TripOut(BaseModel):
   end_odometer_km: Optional[float]
   purpose: Optional[str]
   business: bool
-  notes: Optional[str] = None
   # NYTT
   driver_name: Optional[str] = None
   start_address: Optional[str] = None
@@ -327,7 +325,6 @@ def create_trip(payload: TripIn, db: Session = Depends(get_db)):
     distance_km=dist_km,
     purpose=payload.purpose,
     business=payload.business,
-    notes=payload.notes,
     driver_name=payload.driver_name,
     start_address=payload.start_address,
     end_address=payload.end_address,
@@ -341,7 +338,6 @@ def create_trip(payload: TripIn, db: Session = Depends(get_db)):
     start_odometer_km=trip.start_odometer_km,
     end_odometer_km=trip.end_odometer_km,
     purpose=trip.purpose, business=trip.business,
-    notes=trip.notes,
     driver_name=trip.driver_name, start_address=trip.start_address, end_address=trip.end_address
   )
 
@@ -373,7 +369,6 @@ def update_trip(trip_id: int = Path(...), payload: TripIn = None, db: Session = 
   trip.distance_km = dist_km if dist_km is not None else trip.distance_km
   trip.purpose = payload.purpose
   trip.business = payload.business
-  trip.notes = payload.notes
   trip.driver_name = payload.driver_name
   trip.start_address = payload.start_address
   trip.end_address = payload.end_address
@@ -391,7 +386,6 @@ def update_trip(trip_id: int = Path(...), payload: TripIn = None, db: Session = 
     end_odometer_km=trip.end_odometer_km,
     purpose=trip.purpose,
     business=trip.business,
-    notes=trip.notes,
     driver_name=trip.driver_name, start_address=trip.start_address, end_address=trip.end_address
   )
 
@@ -426,7 +420,6 @@ def list_trips(
       "end_odometer_km": t.end_odometer_km,
       "purpose": t.purpose,
       "business": t.business,
-      "notes": t.notes,
       "driver_name": t.driver_name,
       "start_address": t.start_address,
       "end_address": t.end_address,
@@ -545,7 +538,6 @@ def export_csv(
       t.purpose or "",
       t.driver_name or "",
       "Tjänst" if t.business else "Privat",
-      t.notes or "",
     ])
 
   csv_bytes = output.getvalue().encode('utf-8-sig')

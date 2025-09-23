@@ -36,7 +36,6 @@ class Trip(Base):
 
     purpose = Column(String(255))
     business = Column(Boolean, default=True)
-    notes = Column(Text)
 
     # NYTT: förare + fria adresser
     driver_name = Column(String(255), nullable=True)

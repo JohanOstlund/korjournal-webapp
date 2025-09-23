@@ -13,7 +13,6 @@ type Trip = {
   end_odometer_km?: number | null;
   purpose?: string | null;
   business: boolean;
-  notes?: string | null;
   // NYTT
   driver_name?: string | null;
   start_address?: string | null;
@@ -51,7 +50,6 @@ export default function Home() {
   // Formfält
   const [purpose, setPurpose] = useState<string>('Pendling arbete');
   const [business, setBusiness] = useState<boolean>(true);
-  const [notes, setNotes] = useState<string>('');
 
   // NYTT: Förare + adresser
   const [driver, setDriver] = useState<string>('');
@@ -142,7 +140,6 @@ export default function Home() {
         start_odometer_km: odo ?? undefined,
         purpose: purpose || undefined,
         business,
-        notes: notes || undefined,
         // nytt
         driver_name: driver || undefined,
         start_address: startAddress || undefined,
@@ -181,7 +178,6 @@ export default function Home() {
         end_odometer_km: endVal ?? undefined,
         purpose: purpose || undefined,
         business,
-        notes: notes || undefined,
         // nytt
         driver_name: driver || activeTrip.driver_name || undefined,
         end_address: endAddress || undefined,
@@ -253,10 +249,6 @@ export default function Home() {
         <label style={{ alignItems:'center', display:'flex', gap:8 }}>
           Tjänst
           <input type="checkbox" checked={business} onChange={e=>setBusiness(e.target.checked)} />
-        </label>
-        <label>
-          Anteckningar
-          <input value={notes} onChange={e=>setNotes(e.target.value)} />
         </label>
       </div>
 
