@@ -30,14 +30,13 @@ class Trip(Base):
     end_odometer_km = Column(Float)
     distance_km = Column(Float)
 
-    # (gamla relationsfält – kan nyttjas senare om du vill koppla Places)
     start_place_id = Column(Integer, ForeignKey("places.id"))
     end_place_id = Column(Integer, ForeignKey("places.id"))
 
     purpose = Column(String(255))
     business = Column(Boolean, default=True)
 
-    # NYTT: förare + fria adresser
+    # Nya fria fält som UI/CSV använder
     driver_name = Column(String(255), nullable=True)
     start_address = Column(String(255), nullable=True)
     end_address   = Column(String(255), nullable=True)
@@ -56,18 +55,27 @@ class OdometerSnapshot(Base):
     at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     value_km = Column(Float, nullable=False)
     source = Column(String(64))
-
     vehicle = relationship("Vehicle", back_populates="odometer_snaps")
 
 class TripTemplate(Base):
     __tablename__ = "trip_templates"
     id = Column(Integer, primary_key=True)
     name = Column(String(128), nullable=False, unique=True)
+
+    # som tidigare
     default_purpose = Column(String(255))
-    business = Column(Boolean, default=True)
+    business = Column(Boolean, default=True)   # True = tjänst, False = privat
     default_distance_km = Column(Float)
+
+    # platsrelationer (kan användas senare)
     start_place_id = Column(Integer, ForeignKey("places.id"))
     end_place_id = Column(Integer, ForeignKey("places.id"))
+
+    # NYTT: egna defaultfält som UI vill ha
+    default_vehicle_reg = Column(String(32))
+    default_driver_name = Column(String(255))
+    default_start_address = Column(String(255))
+    default_end_address   = Column(String(255))
 
     start_place = relationship("Place", foreign_keys=[start_place_id])
     end_place = relationship("Place", foreign_keys=[end_place_id])

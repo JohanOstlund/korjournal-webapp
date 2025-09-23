@@ -99,7 +99,7 @@ class TripIn(BaseModel):
   distance_km: Optional[float] = None
   purpose: Optional[str] = None
   business: bool = True
-  # NYTT
+  # extra fria fält
   driver_name: Optional[str] = None
   start_address: Optional[str] = None
   end_address: Optional[str] = None
@@ -114,7 +114,6 @@ class TripOut(BaseModel):
   end_odometer_km: Optional[float]
   purpose: Optional[str]
   business: bool
-  # NYTT
   driver_name: Optional[str] = None
   start_address: Optional[str] = None
   end_address: Optional[str] = None
@@ -127,7 +126,6 @@ class StartTripIn(BaseModel):
   start_odometer_km: Optional[float] = None
   purpose: Optional[str] = None
   business: bool = True
-  # NYTT
   driver_name: Optional[str] = None
   start_address: Optional[str] = None
 
@@ -139,23 +137,20 @@ class FinishTripIn(BaseModel):
   distance_km: Optional[float] = None
   purpose: Optional[str] = None
   business: Optional[bool] = None
-  # NYTT
   driver_name: Optional[str] = None
   end_address: Optional[str] = None
 
-class OdoIn(BaseModel):
-  vehicle_reg: str
-  value_km: float
-  at: datetime
-  source: Optional[str] = None
-
+# Templates
 class TemplateIn(BaseModel):
   name: str
   default_purpose: Optional[str] = None
   business: bool = True
   default_distance_km: Optional[float] = None
-  start_place: Optional[str] = None
-  end_place: Optional[str] = None
+  # NYTT: extra defaults
+  default_vehicle_reg: Optional[str] = None
+  default_driver_name: Optional[str] = None
+  default_start_address: Optional[str] = None
+  default_end_address: Optional[str] = None
 
 class TemplateOut(BaseModel):
   id: int
@@ -163,8 +158,11 @@ class TemplateOut(BaseModel):
   default_purpose: Optional[str]
   business: bool
   default_distance_km: Optional[float]
-  start_place: Optional[str]
-  end_place: Optional[str]
+  # NYTT
+  default_vehicle_reg: Optional[str]
+  default_driver_name: Optional[str]
+  default_start_address: Optional[str]
+  default_end_address: Optional[str]
   class Config:
     from_attributes = True
 
@@ -239,7 +237,6 @@ def start_trip(payload: StartTripIn, db: Session = Depends(get_db)):
     start_odometer_km=payload.start_odometer_km,
     purpose=payload.purpose,
     business=payload.business,
-    # nytt
     driver_name=payload.driver_name,
     start_address=payload.start_address,
   )
@@ -277,7 +274,6 @@ def finish_trip(payload: FinishTripIn, db: Session = Depends(get_db)):
     t.purpose = payload.purpose
   if payload.business is not None:
     t.business = payload.business
-  # nytt
   if payload.driver_name is not None and not t.driver_name:
     t.driver_name = payload.driver_name
   if payload.end_address is not None:
@@ -442,8 +438,10 @@ def list_templates(db: Session = Depends(get_db)):
       default_purpose=t.default_purpose,
       business=t.business,
       default_distance_km=t.default_distance_km,
-      start_place=t.start_place.address if t.start_place_id else None,
-      end_place=t.end_place.address if t.end_place_id else None,
+      default_vehicle_reg=t.default_vehicle_reg,
+      default_driver_name=t.default_driver_name,
+      default_start_address=t.default_start_address,
+      default_end_address=t.default_end_address,
     ))
   return out
 
@@ -454,12 +452,19 @@ def create_template(payload: TemplateIn, db: Session = Depends(get_db)):
     default_purpose=payload.default_purpose,
     business=payload.business,
     default_distance_km=payload.default_distance_km,
+    default_vehicle_reg=payload.default_vehicle_reg,
+    default_driver_name=payload.default_driver_name,
+    default_start_address=payload.default_start_address,
+    default_end_address=payload.default_end_address,
   )
   db.add(t); db.commit(); db.refresh(t)
   return TemplateOut(
     id=t.id, name=t.name, default_purpose=t.default_purpose,
     business=t.business, default_distance_km=t.default_distance_km,
-    start_place=None, end_place=None
+    default_vehicle_reg=t.default_vehicle_reg,
+    default_driver_name=t.default_driver_name,
+    default_start_address=t.default_start_address,
+    default_end_address=t.default_end_address
   )
 
 @app.post("/templates/{tpl_id}/apply", response_model=TripOut)
@@ -467,33 +472,40 @@ def apply_template(tpl_id: int, payload: TripIn, db: Session = Depends(get_db)):
   tpl = db.query(TripTemplate).get(tpl_id)
   if not tpl: raise HTTPException(404, "Template not found")
 
-  veh = db.query(Vehicle).filter(Vehicle.reg_no == payload.vehicle_reg).first()
+  # fyll från mallen om tomt
+  vehicle_reg = payload.vehicle_reg or tpl.default_vehicle_reg
+  if not vehicle_reg:
+    raise HTTPException(400, "vehicle_reg saknas (mall saknar default)")
+
+  veh = db.query(Vehicle).filter(Vehicle.reg_no == vehicle_reg).first()
   if not veh:
-    veh = Vehicle(reg_no=payload.vehicle_reg)
+    veh = Vehicle(reg_no=vehicle_reg)
     db.add(veh); db.flush()
 
-  if payload.ended_at is not None and payload.ended_at <= payload.started_at:
+  started_at = payload.started_at
+  ended_at = payload.ended_at
+  if ended_at is not None and ended_at <= started_at:
     raise HTTPException(400, "ended_at must be after started_at")
-  ensure_no_overlap(db, veh.id, payload.started_at, payload.ended_at)
+  ensure_no_overlap(db, veh.id, started_at, ended_at)
 
   dist_km = payload.distance_km
-  if dist_km is None and tpl.default_distance_km is not None and payload.ended_at is not None:
+  if dist_km is None and tpl.default_distance_km is not None and ended_at is not None:
     dist_km = tpl.default_distance_km
-  if dist_km is None and payload.ended_at is not None:
+  if dist_km is None and ended_at is not None:
     dist_km = odo_delta_distance(payload.start_odometer_km, payload.end_odometer_km)
 
   trip = Trip(
     vehicle_id=veh.id,
-    started_at=payload.started_at,
-    ended_at=payload.ended_at,
+    started_at=started_at,
+    ended_at=ended_at,
     start_odometer_km=payload.start_odometer_km,
     end_odometer_km=payload.end_odometer_km,
     distance_km=dist_km,
     purpose=payload.purpose or tpl.default_purpose,
     business=payload.business if payload.business is not None else tpl.business,
-    driver_name=payload.driver_name,
-    start_address=payload.start_address,
-    end_address=payload.end_address,
+    driver_name=payload.driver_name or tpl.default_driver_name,
+    start_address=payload.start_address or tpl.default_start_address,
+    end_address=payload.end_address or tpl.default_end_address,
   )
   db.add(trip); db.commit(); db.refresh(trip)
   return TripOut(
@@ -523,7 +535,10 @@ def export_csv(
   q = q.filter(Trip.ended_at.isnot(None))
 
   output = StringIO(); writer = csv.writer(output, delimiter=';')
-  writer.writerow(["År","Regnr","Datum","Startadress","Slutadress","Start mätarställning","Slut mätarställning","Antal km","Ärende/Syfte","Förare","Tjänst/Privat","Anteckningar"])
+  writer.writerow([
+    "År","Regnr","Datum","Startadress","Slutadress",
+    "Start mätarställning","Slut mätarställning","Antal km","Ärende/Syfte","Förare","Tjänst/Privat"
+  ])
 
   for t, v in q.order_by(Trip.started_at.asc()).all():
     datum = t.started_at.strftime('%Y-%m-%d') if t.started_at else ""
@@ -572,3 +587,37 @@ def export_pdf_endpoint(
   pdf_bytes = render_journal_pdf(rows)
   return Response(content=pdf_bytes, media_type="application/pdf",
                   headers={"Content-Disposition": "attachment; filename=korjournal.pdf"})
+
+# ---------- Seed av standardmallar ----------
+@app.on_event("startup")
+def seed_default_templates():
+  db = SessionLocal()
+  try:
+    names = {"Till jobbet", "Från jobbet"}
+    existing = {t.name for t in db.query(TripTemplate).filter(TripTemplate.name.in_(names)).all()}
+
+    if "Till jobbet" not in existing:
+      db.add(TripTemplate(
+        name="Till jobbet",
+        business=False,  # privat
+        default_purpose="Pendling arbete",
+        default_vehicle_reg="ABC123",
+        default_driver_name="John Doe",
+        default_start_address="Gatan1",
+        default_end_address="Gatan2",
+      ))
+
+    if "Från jobbet" not in existing:
+      db.add(TripTemplate(
+        name="Från jobbet",
+        business=False,  # privat
+        default_purpose="Pendling arbete",
+        default_vehicle_reg="ABC123",
+        default_driver_name="John Doe",
+        default_start_address="Gatan1",
+        default_end_address="Gatan2",
+      ))
+
+    db.commit()
+  finally:
+    db.close()

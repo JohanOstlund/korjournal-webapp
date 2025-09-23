@@ -13,7 +13,6 @@ type Trip = {
   end_odometer_km?: number | null;
   purpose?: string | null;
   business: boolean;
-  // NYTT
   driver_name?: string | null;
   start_address?: string | null;
   end_address?: string | null;
@@ -25,6 +24,10 @@ type Template = {
   default_purpose?: string | null;
   business: boolean;
   default_distance_km?: number | null;
+  default_vehicle_reg?: string | null;
+  default_driver_name?: string | null;
+  default_start_address?: string | null;
+  default_end_address?: string | null;
 };
 
 // Tolka serverns datum som UTC om ingen tidszon anges
@@ -48,15 +51,13 @@ export default function Home() {
   const [status, setStatus] = useState<string>('');
 
   // Formfält
-  const [purpose, setPurpose] = useState<string>('Pendling arbete');
+  const [purpose, setPurpose] = useState<string>('Kundbesök');
   const [business, setBusiness] = useState<boolean>(true);
-
-  // NYTT: Förare + adresser
   const [driver, setDriver] = useState<string>('');
   const [startAddress, setStartAddress] = useState<string>('');
   const [endAddress, setEndAddress] = useState<string>('');
 
-  // Odo-fält (kan fyllas av HA eller manuellt)
+  // Odo-fält
   const [startOdo, setStartOdo] = useState<number | null>(null);
   const [endOdo, setEndOdo] = useState<number | null>(null);
 
@@ -65,7 +66,6 @@ export default function Home() {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
 
-  // Mall-val
   const [selectedTemplate, setSelectedTemplate] = useState<number | ''>('');
 
   const loadTrips = async () => {
@@ -122,7 +122,7 @@ export default function Home() {
     }
   };
 
-  // Starta resa (skapar rad med ended_at = null)
+  // Starta resa
   const startTrip = async () => {
     if (!vehicle.trim()) {
       alert('Fyll i Regnr först (eller välj).');
@@ -130,17 +130,14 @@ export default function Home() {
     }
     try {
       setStarting(true);
-      // Försök hämta startodo via HA
       let odo = await haPollOdometer();
-      if (odo == null) {
-        odo = startOdo ?? null;
-      }
+      if (odo == null) odo = startOdo ?? null;
+
       const body = {
         vehicle_reg: vehicle.trim(),
         start_odometer_km: odo ?? undefined,
         purpose: purpose || undefined,
         business,
-        // nytt
         driver_name: driver || undefined,
         start_address: startAddress || undefined,
       };
@@ -178,7 +175,6 @@ export default function Home() {
         end_odometer_km: endVal ?? undefined,
         purpose: purpose || undefined,
         business,
-        // nytt
         driver_name: driver || activeTrip.driver_name || undefined,
         end_address: endAddress || undefined,
       };
@@ -199,14 +195,19 @@ export default function Home() {
     }
   };
 
+  // Välj mall → fyll fält
   const onPickTemplate = (val: string) => {
     if (!val) { setSelectedTemplate(''); return; }
     const id = parseInt(val, 10);
     setSelectedTemplate(id);
     const t = templates.find(x => x.id === id);
     if (t) {
-      setPurpose(t.default_purpose || purpose);
-      setBusiness(t.business);
+      if (t.default_vehicle_reg) setVehicle(t.default_vehicle_reg);
+      if (t.default_driver_name) setDriver(t.default_driver_name);
+      if (t.default_start_address) setStartAddress(t.default_start_address);
+      if (t.default_end_address) setEndAddress(t.default_end_address);
+      if (typeof t.business === 'boolean') setBusiness(t.business);
+      if (t.default_purpose) setPurpose(t.default_purpose);
     }
   };
 
@@ -252,7 +253,7 @@ export default function Home() {
         </label>
       </div>
 
-      {/* NYTT: Förare + adresser */}
+      {/* Förare + adresser */}
       <div style={{ display:'grid', gap:8, marginTop:12, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
         <label>
           Förare
@@ -268,18 +269,18 @@ export default function Home() {
         </label>
       </div>
 
-      {/* Pågående resa – panel */}
-      {activeTrip ? (
+      {/* Start/avsluta resa */}
+      {useMemo(()=>activeTrip, [activeTrip]) ? (
         <div style={{ marginTop: 16, padding: 12, border: '1px solid #ddd', borderRadius: 8, background: '#fffbea' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap: 8, flexWrap:'wrap' }}>
             <div>
-              <strong>Pågående resa</strong> — {activeTrip.vehicle_reg} • start {fmtLocal(activeTrip.started_at)}
+              <strong>Pågående resa</strong> — {activeTrip!.vehicle_reg} • start {fmtLocal(activeTrip!.started_at)}
               <div style={{ color:'#444', marginTop: 6 }}>
-                Förare: <strong>{activeTrip.driver_name || driver || '-'}</strong>
+                Förare: <strong>{activeTrip!.driver_name || driver || '-'}</strong>
                 {' • '}
-                Start-odo: <strong>{activeTrip.start_odometer_km ?? startOdo ?? '-'}</strong>
+                Start-odo: <strong>{activeTrip!.start_odometer_km ?? startOdo ?? '-'}</strong>
                 {activeKmLive != null && <> • Km (auto): <strong>{activeKmLive}</strong></>}
-                { (activeTrip.start_address || startAddress) && <> • Startadress: <strong>{activeTrip.start_address || startAddress}</strong></> }
+                {(activeTrip!.start_address || startAddress) && <> • Startadress: <strong>{activeTrip!.start_address || startAddress}</strong></>}
               </div>
             </div>
             <div style={{ display:'flex', gap:8, alignItems:'center' }}>
