@@ -99,7 +99,6 @@ class TripIn(BaseModel):
   distance_km: Optional[float] = None
   purpose: Optional[str] = None
   business: bool = True
-  # extra fria fält
   driver_name: Optional[str] = None
   start_address: Optional[str] = None
   end_address: Optional[str] = None
@@ -146,7 +145,6 @@ class TemplateIn(BaseModel):
   default_purpose: Optional[str] = None
   business: bool = True
   default_distance_km: Optional[float] = None
-  # NYTT: extra defaults
   default_vehicle_reg: Optional[str] = None
   default_driver_name: Optional[str] = None
   default_start_address: Optional[str] = None
@@ -158,7 +156,6 @@ class TemplateOut(BaseModel):
   default_purpose: Optional[str]
   business: bool
   default_distance_km: Optional[float]
-  # NYTT
   default_vehicle_reg: Optional[str]
   default_driver_name: Optional[str]
   default_start_address: Optional[str]
@@ -447,6 +444,10 @@ def list_templates(db: Session = Depends(get_db)):
 
 @app.post("/templates", response_model=TemplateOut)
 def create_template(payload: TemplateIn, db: Session = Depends(get_db)):
+  # enkel unikhetskontroll på namn
+  exists = db.query(TripTemplate).filter(TripTemplate.name == payload.name).first()
+  if exists:
+    raise HTTPException(400, "En mall med detta namn finns redan")
   t = TripTemplate(
     name=payload.name,
     default_purpose=payload.default_purpose,
@@ -467,12 +468,53 @@ def create_template(payload: TemplateIn, db: Session = Depends(get_db)):
     default_end_address=t.default_end_address
   )
 
+@app.put("/templates/{tpl_id}", response_model=TemplateOut)
+def update_template(tpl_id: int, payload: TemplateIn, db: Session = Depends(get_db)):
+  t = db.query(TripTemplate).get(tpl_id)
+  if not t:
+    raise HTTPException(404, "Template not found")
+
+  # Om man byter namn, kontrollera krock
+  if payload.name and payload.name != t.name:
+    exists = db.query(TripTemplate).filter(TripTemplate.name == payload.name).first()
+    if exists:
+      raise HTTPException(400, "En mall med detta namn finns redan")
+
+  t.name = payload.name
+  t.default_purpose = payload.default_purpose
+  t.business = payload.business
+  t.default_distance_km = payload.default_distance_km
+  t.default_vehicle_reg = payload.default_vehicle_reg
+  t.default_driver_name = payload.default_driver_name
+  t.default_start_address = payload.default_start_address
+  t.default_end_address = payload.default_end_address
+
+  db.commit(); db.refresh(t)
+  return TemplateOut(
+    id=t.id,
+    name=t.name,
+    default_purpose=t.default_purpose,
+    business=t.business,
+    default_distance_km=t.default_distance_km,
+    default_vehicle_reg=t.default_vehicle_reg,
+    default_driver_name=t.default_driver_name,
+    default_start_address=t.default_start_address,
+    default_end_address=t.default_end_address,
+  )
+
+@app.delete("/templates/{tpl_id}")
+def delete_template(tpl_id: int, db: Session = Depends(get_db)):
+  t = db.query(TripTemplate).get(tpl_id)
+  if not t:
+    raise HTTPException(404, "Template not found")
+  db.delete(t); db.commit()
+  return {"status": "deleted"}
+
 @app.post("/templates/{tpl_id}/apply", response_model=TripOut)
 def apply_template(tpl_id: int, payload: TripIn, db: Session = Depends(get_db)):
   tpl = db.query(TripTemplate).get(tpl_id)
   if not tpl: raise HTTPException(404, "Template not found")
 
-  # fyll från mallen om tomt
   vehicle_reg = payload.vehicle_reg or tpl.default_vehicle_reg
   if not vehicle_reg:
     raise HTTPException(400, "vehicle_reg saknas (mall saknar default)")
@@ -518,7 +560,7 @@ def apply_template(tpl_id: int, payload: TripIn, db: Session = Depends(get_db)):
     driver_name=trip.driver_name, start_address=trip.start_address, end_address=trip.end_address
   )
 
-# ---------- Exports ----------
+# ---------- Exports (oförändrat) ----------
 @app.get("/exports/journal.csv")
 def export_csv(
   db: Session = Depends(get_db),

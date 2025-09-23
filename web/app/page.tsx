@@ -47,10 +47,10 @@ const fmtLocal = (isoOrNaive: string | null) => {
 export default function Home() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
-  const [vehicle, setVehicle] = useState(''); // tomt = visa alla
+  const [vehicle, setVehicle] = useState(''); // filter: visa bara detta regnr
   const [status, setStatus] = useState<string>('');
 
-  // Formfält
+  // Formfält (resa)
   const [purpose, setPurpose] = useState<string>('Kundbesök');
   const [business, setBusiness] = useState<boolean>(true);
   const [driver, setDriver] = useState<string>('');
@@ -66,7 +66,18 @@ export default function Home() {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
 
+  // Mall-val (för att fylla formulär)
   const [selectedTemplate, setSelectedTemplate] = useState<number | ''>('');
+
+  // Mall-hantering (redigera/ta bort/skapa)
+  const [editTplId, setEditTplId] = useState<number | ''>('');
+  const [tplName, setTplName] = useState('');
+  const [tplBusiness, setTplBusiness] = useState<boolean>(false);
+  const [tplPurpose, setTplPurpose] = useState('');
+  const [tplVehicle, setTplVehicle] = useState('');
+  const [tplDriver, setTplDriver] = useState('');
+  const [tplStartAddr, setTplStartAddr] = useState('');
+  const [tplEndAddr, setTplEndAddr] = useState('');
 
   const loadTrips = async () => {
     try {
@@ -195,7 +206,7 @@ export default function Home() {
     }
   };
 
-  // Välj mall → fyll fält
+  // Välj mall → fyll resformulär
   const onPickTemplate = (val: string) => {
     if (!val) { setSelectedTemplate(''); return; }
     const id = parseInt(val, 10);
@@ -217,6 +228,77 @@ export default function Home() {
     return undefined;
   }, [activeTrip, startOdo, endOdo]);
 
+  // -------- Mall-hantering --------
+  const resetTplForm = () => {
+    setEditTplId('');
+    setTplName('');
+    setTplBusiness(false);
+    setTplPurpose('');
+    setTplVehicle('');
+    setTplDriver('');
+    setTplStartAddr('');
+    setTplEndAddr('');
+  };
+
+  const loadTplIntoForm = (tpl: Template) => {
+    setEditTplId(tpl.id);
+    setTplName(tpl.name || '');
+    setTplBusiness(!!tpl.business);
+    setTplPurpose(tpl.default_purpose || '');
+    setTplVehicle(tpl.default_vehicle_reg || '');
+    setTplDriver(tpl.default_driver_name || '');
+    setTplStartAddr(tpl.default_start_address || '');
+    setTplEndAddr(tpl.default_end_address || '');
+  };
+
+  const onSelectTplToEdit = (idStr: string) => {
+    if (!idStr) { resetTplForm(); return; }
+    const id = parseInt(idStr, 10);
+    const tpl = templates.find(t => t.id === id);
+    if (tpl) loadTplIntoForm(tpl);
+  };
+
+  const saveTemplate = async () => {
+    const payload = {
+      name: tplName.trim(),
+      business: tplBusiness,
+      default_purpose: tplPurpose || null,
+      default_vehicle_reg: tplVehicle || null,
+      default_driver_name: tplDriver || null,
+      default_start_address: tplStartAddr || null,
+      default_end_address: tplEndAddr || null,
+      default_distance_km: null,
+    };
+    const isEdit = !!editTplId;
+    const url = isEdit ? `${API}/templates/${editTplId}` : `${API}/templates`;
+    const method = isEdit ? 'PUT' : 'POST';
+    const r = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      alert(`Kunde inte spara mall: ${txt}`);
+      return;
+    }
+    await loadTemplates();
+    resetTplForm();
+  };
+
+  const deleteTemplate = async () => {
+    if (!editTplId) return;
+    if (!confirm('Ta bort den här mallen?')) return;
+    const r = await fetch(`${API}/templates/${editTplId}`, { method: 'DELETE' });
+    if (!r.ok) {
+      const txt = await r.text();
+      alert(`Kunde inte ta bort mall: ${txt}`);
+      return;
+    }
+    await loadTemplates();
+    resetTplForm();
+  };
+
   return (
     <div>
       {/* Filter + export */}
@@ -234,7 +316,7 @@ export default function Home() {
         <button onClick={()=> window.open(`${API}/exports/journal.pdf${vehicle ? `?vehicle=${vehicle}` : ''}`, '_blank')}>Exportera PDF</button>
       </div>
 
-      {/* Mall + basfält */}
+      {/* Mallval till resa + basfält */}
       <div style={{ display:'grid', gap:8, marginTop:12, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
         <label>
           Mall
@@ -269,18 +351,18 @@ export default function Home() {
         </label>
       </div>
 
-      {/* Start/avsluta resa */}
-      {useMemo(()=>activeTrip, [activeTrip]) ? (
+      {/* Pågående resa – panel */}
+      {activeTrip ? (
         <div style={{ marginTop: 16, padding: 12, border: '1px solid #ddd', borderRadius: 8, background: '#fffbea' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap: 8, flexWrap:'wrap' }}>
             <div>
-              <strong>Pågående resa</strong> — {activeTrip!.vehicle_reg} • start {fmtLocal(activeTrip!.started_at)}
+              <strong>Pågående resa</strong> — {activeTrip.vehicle_reg} • start {fmtLocal(activeTrip.started_at)}
               <div style={{ color:'#444', marginTop: 6 }}>
-                Förare: <strong>{activeTrip!.driver_name || driver || '-'}</strong>
+                Förare: <strong>{activeTrip.driver_name || driver || '-'}</strong>
                 {' • '}
-                Start-odo: <strong>{activeTrip!.start_odometer_km ?? startOdo ?? '-'}</strong>
+                Start-odo: <strong>{activeTrip.start_odometer_km ?? startOdo ?? '-'}</strong>
                 {activeKmLive != null && <> • Km (auto): <strong>{activeKmLive}</strong></>}
-                {(activeTrip!.start_address || startAddress) && <> • Startadress: <strong>{activeTrip!.start_address || startAddress}</strong></>}
+                {(activeTrip.start_address || startAddress) && <> • Startadress: <strong>{activeTrip.start_address || startAddress}</strong></>}
               </div>
             </div>
             <div style={{ display:'flex', gap:8, alignItems:'center' }}>
@@ -321,8 +403,53 @@ export default function Home() {
         </div>
       )}
 
+      {/* Hantera mallar */}
+      <h2 style={{ marginTop: 28, fontSize: 18 }}>Hantera mallar</h2>
+      <div style={{ display:'grid', gap:8, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
+        <label>
+          Välj mall
+          <select value={String(editTplId)} onChange={e=>onSelectTplToEdit(e.target.value)} style={{ marginLeft: 8 }}>
+            <option value="">– Ny mall –</option>
+            {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </label>
+        <label>
+          Namn
+          <input value={tplName} onChange={(e)=>setTplName(e.target.value)} />
+        </label>
+        <label style={{ alignItems:'center', display:'flex', gap:8 }}>
+          Privat (avmarkera = tjänst)
+          <input type="checkbox" checked={!tplBusiness ? true : false} onChange={(e)=>setTplBusiness(!e.target.checked)} />
+        </label>
+        <label>
+          Syfte
+          <input value={tplPurpose} onChange={(e)=>setTplPurpose(e.target.value)} />
+        </label>
+        <label>
+          Regnr
+          <input value={tplVehicle} onChange={(e)=>setTplVehicle(e.target.value)} />
+        </label>
+        <label>
+          Förare
+          <input value={tplDriver} onChange={(e)=>setTplDriver(e.target.value)} />
+        </label>
+        <label>
+          Startadress
+          <input value={tplStartAddr} onChange={(e)=>setTplStartAddr(e.target.value)} />
+        </label>
+        <label>
+          Slutadress
+          <input value={tplEndAddr} onChange={(e)=>setTplEndAddr(e.target.value)} />
+        </label>
+      </div>
+      <div style={{ display:'flex', gap:8, marginTop:8 }}>
+        <button onClick={saveTemplate}>{editTplId ? 'Spara ändringar' : 'Skapa mall'}</button>
+        <button onClick={resetTplForm} type="button">Rensa</button>
+        <button onClick={deleteTemplate} type="button" disabled={!editTplId}>Ta bort</button>
+      </div>
+
       {/* Lista resor */}
-      <h2 style={{ marginTop: 24, fontSize: 18 }}>Resor</h2>
+      <h2 style={{ marginTop: 28, fontSize: 18 }}>Resor</h2>
       {loading ? (
         <div>Laddar…</div>
       ) : (
