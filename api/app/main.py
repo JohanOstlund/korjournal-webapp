@@ -630,6 +630,41 @@ def export_pdf_endpoint(
   return Response(content=pdf_bytes, media_type="application/pdf",
                   headers={"Content-Disposition": "attachment; filename=korjournal.pdf"})
 
+# ---------- HA-integration (oförändrat) ----------
+@app.post("/integrations/home-assistant/poll")
+async def ha_poll(payload: HAPollIn, db: Session = Depends(get_db)):
+    base, token, entity, *_ = get_ha_config(db)
+    if not (base and token and (entity or payload.entity_id)):
+        raise HTTPException(400, "HA Base/Token/Entity not configured")
+    eid = payload.entity_id or entity
+    url = f"{base}/api/states/{eid}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=10, verify=False) as client:
+      r = await client.get(url, headers=headers)
+      if r.status_code != 200:
+          raise HTTPException(r.status_code, f"HA states fetch failed: {r.text}")
+      data = r.json()
+      try:
+          value_km = float(data.get("state"))
+      except Exception:
+          raise HTTPException(500, f"Could not parse odometer state: {data.get('state')}")
+      at = datetime.utcnow()
+    return {"status": "ok", "value_km": value_km, "entity": eid, "at": at.isoformat()}
+
+@app.post("/integrations/home-assistant/force-update-and-poll")
+async def ha_force_update_and_poll(payload: HAPollIn, wait_seconds: int = 15, db: Session = Depends(get_db)):
+    base, token, entity, domain, service, data_json = get_ha_config(db)
+    if not (base and token):
+        raise HTTPException(400, "HA Base/Token not configured")
+    svc_url = f"{base}/api/services/{domain}/{service}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=20, verify=False) as client:
+        s = await client.post(svc_url, headers=headers, json=data_json or {})
+        if s.status_code not in (200, 201):
+            raise HTTPException(s.status_code, f"HA service call failed: {s.text}")
+    await asyncio.sleep(wait_seconds)
+    return await ha_poll(payload, db)
+    
 # ---------- Seed av standardmallar ----------
 @app.on_event("startup")
 def seed_default_templates():
