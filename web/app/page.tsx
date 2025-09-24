@@ -30,18 +30,40 @@ type Template = {
   default_end_address?: string | null;
 };
 
-// Tolka serverns datum som UTC om ingen tidszon anges
+// Tolka serverns datum (UTC/naivt) -> Date
 const parseServerDate = (isoOrNaive: string | null): Date | null => {
   if (!isoOrNaive) return null;
   const s = isoOrNaive.trim();
+  // Har redan timezone?
   if (/[zZ]$/.test(s) || /[+-]\d{2}:\d{2}$/.test(s)) return new Date(s);
+  // Tolka som UTC
   return new Date(s + 'Z');
 };
 
-// Visa i användarens lokala tidszon
+// För display i UI (lokal tid)
 const fmtLocal = (isoOrNaive: string | null) => {
   const d = parseServerDate(isoOrNaive);
   return d ? d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '';
+};
+
+// För <input type="datetime-local"> krävs "YYYY-MM-DDTHH:mm"
+const toLocalInputValue = (isoOrNaive: string | null) => {
+  const d = parseServerDate(isoOrNaive);
+  if (!d) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  const mm = pad(d.getMonth() + 1);
+  const dd = pad(d.getDate());
+  const hh = pad(d.getHours());
+  const mi = pad(d.getMinutes());
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+};
+
+// Från <input datetime-local> (lokal) -> ISO UTC-string
+const fromLocalInputToISOStringUTC = (val: string | null) => {
+  if (!val) return null; // tomt
+  const d = new Date(val); // tolkar som lokal
+  return isNaN(d.getTime()) ? null : d.toISOString(); // ISO i UTC
 };
 
 export default function Home() {
@@ -50,7 +72,7 @@ export default function Home() {
   const [vehicle, setVehicle] = useState(''); // filter: visa bara detta regnr
   const [status, setStatus] = useState<string>('');
 
-  // Formfält (resa)
+  // Formfält för ny/pågående resa
   const [purpose, setPurpose] = useState<string>('Kundbesök');
   const [business, setBusiness] = useState<boolean>(true);
   const [driver, setDriver] = useState<string>('');
@@ -66,18 +88,23 @@ export default function Home() {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
 
-  // Mall-val (för att fylla formulär)
+  // Mall-val för att fylla formulär
   const [selectedTemplate, setSelectedTemplate] = useState<number | ''>('');
 
-  // Mall-hantering (redigera/ta bort/skapa)
-  const [editTplId, setEditTplId] = useState<number | ''>('');
-  const [tplName, setTplName] = useState('');
-  const [tplBusiness, setTplBusiness] = useState<boolean>(false);
-  const [tplPurpose, setTplPurpose] = useState('');
-  const [tplVehicle, setTplVehicle] = useState('');
-  const [tplDriver, setTplDriver] = useState('');
-  const [tplStartAddr, setTplStartAddr] = useState('');
-  const [tplEndAddr, setTplEndAddr] = useState('');
+  // ==== Redigera resa ====
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editVehicle, setEditVehicle] = useState('');
+  const [editPurpose, setEditPurpose] = useState('');
+  const [editBusiness, setEditBusiness] = useState<boolean>(true);
+  const [editDriver, setEditDriver] = useState('');
+  const [editStartAddr, setEditStartAddr] = useState('');
+  const [editEndAddr, setEditEndAddr] = useState('');
+  const [editStartOdo, setEditStartOdo] = useState<number | null>(null);
+  const [editEndOdo, setEditEndOdo] = useState<number | null>(null);
+  const [editStartedAt, setEditStartedAt] = useState(''); // datetime-local
+  const [editEndedAt, setEditEndedAt] = useState(''); // datetime-local
+  const [editSaving, setEditSaving] = useState(false);
+  const [editDeleting, setEditDeleting] = useState(false);
 
   const loadTrips = async () => {
     try {
@@ -133,7 +160,7 @@ export default function Home() {
     }
   };
 
-  // Starta resa
+  // ====== Starta/avsluta resa (oförändrat) ======
   const startTrip = async () => {
     if (!vehicle.trim()) {
       alert('Fyll i Regnr först (eller välj).');
@@ -170,7 +197,6 @@ export default function Home() {
     }
   };
 
-  // Avsluta resa
   const finishTrip = async () => {
     if (!activeTrip) {
       alert('Ingen pågående resa att avsluta.');
@@ -206,7 +232,7 @@ export default function Home() {
     }
   };
 
-  // Välj mall → fyll resformulär
+  // ====== Mall → fyll formulär ======
   const onPickTemplate = (val: string) => {
     if (!val) { setSelectedTemplate(''); return; }
     const id = parseInt(val, 10);
@@ -228,75 +254,98 @@ export default function Home() {
     return undefined;
   }, [activeTrip, startOdo, endOdo]);
 
-  // -------- Mall-hantering --------
-  const resetTplForm = () => {
-    setEditTplId('');
-    setTplName('');
-    setTplBusiness(false);
-    setTplPurpose('');
-    setTplVehicle('');
-    setTplDriver('');
-    setTplStartAddr('');
-    setTplEndAddr('');
+  // ====== Ladda en resa i redigeringsformuläret ======
+  const loadTripIntoEditor = (t: Trip) => {
+    setEditId(t.id);
+    setEditVehicle(t.vehicle_reg || '');
+    setEditPurpose(t.purpose || '');
+    setEditBusiness(!!t.business);
+    setEditDriver(t.driver_name || '');
+    setEditStartAddr(t.start_address || '');
+    setEditEndAddr(t.end_address || '');
+    setEditStartOdo(t.start_odometer_km ?? null);
+    setEditEndOdo(t.end_odometer_km ?? null);
+    setEditStartedAt(toLocalInputValue(t.started_at));
+    setEditEndedAt(toLocalInputValue(t.ended_at));
+    // scrolla ned till panelen (trevligt)
+    setTimeout(() => {
+      document.getElementById('edit-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
   };
 
-  const loadTplIntoForm = (tpl: Template) => {
-    setEditTplId(tpl.id);
-    setTplName(tpl.name || '');
-    setTplBusiness(!!tpl.business);
-    setTplPurpose(tpl.default_purpose || '');
-    setTplVehicle(tpl.default_vehicle_reg || '');
-    setTplDriver(tpl.default_driver_name || '');
-    setTplStartAddr(tpl.default_start_address || '');
-    setTplEndAddr(tpl.default_end_address || '');
+  const resetEditor = () => {
+    setEditId(null);
+    setEditVehicle('');
+    setEditPurpose('');
+    setEditBusiness(true);
+    setEditDriver('');
+    setEditStartAddr('');
+    setEditEndAddr('');
+    setEditStartOdo(null);
+    setEditEndOdo(null);
+    setEditStartedAt('');
+    setEditEndedAt('');
   };
 
-  const onSelectTplToEdit = (idStr: string) => {
-    if (!idStr) { resetTplForm(); return; }
-    const id = parseInt(idStr, 10);
-    const tpl = templates.find(t => t.id === id);
-    if (tpl) loadTplIntoForm(tpl);
-  };
-
-  const saveTemplate = async () => {
-    const payload = {
-      name: tplName.trim(),
-      business: tplBusiness,
-      default_purpose: tplPurpose || null,
-      default_vehicle_reg: tplVehicle || null,
-      default_driver_name: tplDriver || null,
-      default_start_address: tplStartAddr || null,
-      default_end_address: tplEndAddr || null,
-      default_distance_km: null,
-    };
-    const isEdit = !!editTplId;
-    const url = isEdit ? `${API}/templates/${editTplId}` : `${API}/templates`;
-    const method = isEdit ? 'PUT' : 'POST';
-    const r = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!r.ok) {
-      const txt = await r.text();
-      alert(`Kunde inte spara mall: ${txt}`);
+  // ====== Spara (PUT) / Ta bort (DELETE) ======
+  const saveEdit = async () => {
+    if (!editId) return;
+    if (!editVehicle.trim()) {
+      alert('Regnr krävs.');
       return;
     }
-    await loadTemplates();
-    resetTplForm();
-  };
-
-  const deleteTemplate = async () => {
-    if (!editTplId) return;
-    if (!confirm('Ta bort den här mallen?')) return;
-    const r = await fetch(`${API}/templates/${editTplId}`, { method: 'DELETE' });
-    if (!r.ok) {
-      const txt = await r.text();
-      alert(`Kunde inte ta bort mall: ${txt}`);
+    if (!editStartedAt) {
+      alert('Starttid krävs.');
       return;
     }
-    await loadTemplates();
-    resetTplForm();
+    try {
+      setEditSaving(true);
+      const payload: any = {
+        vehicle_reg: editVehicle.trim(),
+        started_at: fromLocalInputToISOStringUTC(editStartedAt),
+        ended_at: editEndedAt ? fromLocalInputToISOStringUTC(editEndedAt) : null,
+        start_odometer_km: editStartOdo ?? null,
+        end_odometer_km: editEndOdo ?? null,
+        purpose: editPurpose || null,
+        business: editBusiness,
+        driver_name: editDriver || null,
+        start_address: editStartAddr || null,
+        end_address: editEndAddr || null,
+        distance_km: null, // låt backend räkna från odo om möjligt
+      };
+      const r = await fetch(`${API}/trips/${editId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) {
+        const txt = await r.text();
+        alert(`Kunde inte spara resan: ${txt}`);
+        return;
+      }
+      await loadTrips();
+      resetEditor();
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const deleteEdit = async () => {
+    if (!editId) return;
+    if (!confirm('Ta bort den här resan?')) return;
+    try {
+      setEditDeleting(true);
+      const r = await fetch(`${API}/trips/${editId}`, { method: 'DELETE' });
+      if (!r.ok) {
+        const txt = await r.text();
+        alert(`Kunde inte ta bort resan: ${txt}`);
+        return;
+      }
+      await loadTrips();
+      resetEditor();
+    } finally {
+      setEditDeleting(false);
+    }
   };
 
   return (
@@ -316,7 +365,7 @@ export default function Home() {
         <button onClick={()=> window.open(`${API}/exports/journal.pdf${vehicle ? `?vehicle=${vehicle}` : ''}`, '_blank')}>Exportera PDF</button>
       </div>
 
-      {/* Mallval till resa + basfält */}
+      {/* Mallval + basfält */}
       <div style={{ display:'grid', gap:8, marginTop:12, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
         <label>
           Mall
@@ -335,7 +384,7 @@ export default function Home() {
         </label>
       </div>
 
-      {/* Förare + adresser */}
+      {/* Förare + adresser (för ny/pågående) */}
       <div style={{ display:'grid', gap:8, marginTop:12, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
         <label>
           Förare
@@ -403,50 +452,79 @@ export default function Home() {
         </div>
       )}
 
-      {/* Hantera mallar */}
-      <h2 style={{ marginTop: 28, fontSize: 18 }}>Hantera mallar</h2>
-      <div style={{ display:'grid', gap:8, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
-        <label>
-          Välj mall
-          <select value={String(editTplId)} onChange={e=>onSelectTplToEdit(e.target.value)} style={{ marginLeft: 8 }}>
-            <option value="">– Ny mall –</option>
-            {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-        </label>
-        <label>
-          Namn
-          <input value={tplName} onChange={(e)=>setTplName(e.target.value)} />
-        </label>
-        <label style={{ alignItems:'center', display:'flex', gap:8 }}>
-          Privat (avmarkera = tjänst)
-          <input type="checkbox" checked={!tplBusiness ? true : false} onChange={(e)=>setTplBusiness(!e.target.checked)} />
-        </label>
-        <label>
-          Syfte
-          <input value={tplPurpose} onChange={(e)=>setTplPurpose(e.target.value)} />
-        </label>
-        <label>
-          Regnr
-          <input value={tplVehicle} onChange={(e)=>setTplVehicle(e.target.value)} />
-        </label>
-        <label>
-          Förare
-          <input value={tplDriver} onChange={(e)=>setTplDriver(e.target.value)} />
-        </label>
-        <label>
-          Startadress
-          <input value={tplStartAddr} onChange={(e)=>setTplStartAddr(e.target.value)} />
-        </label>
-        <label>
-          Slutadress
-          <input value={tplEndAddr} onChange={(e)=>setTplEndAddr(e.target.value)} />
-        </label>
-      </div>
-      <div style={{ display:'flex', gap:8, marginTop:8 }}>
-        <button onClick={saveTemplate}>{editTplId ? 'Spara ändringar' : 'Skapa mall'}</button>
-        <button onClick={resetTplForm} type="button">Rensa</button>
-        <button onClick={deleteTemplate} type="button" disabled={!editTplId}>Ta bort</button>
-      </div>
+      {/* Hantera resor: redigera/ta bort */}
+      <h2 id="edit-panel" style={{ marginTop: 28, fontSize: 18 }}>Redigera resa</h2>
+      {editId ? (
+        <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12, background:'#fafafa' }}>
+          <div style={{ display:'grid', gap:8, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
+            <label>
+              Regnr
+              <input value={editVehicle} onChange={e=>setEditVehicle(e.target.value)} />
+            </label>
+            <label>
+              Syfte
+              <input value={editPurpose} onChange={e=>setEditPurpose(e.target.value)} />
+            </label>
+            <label style={{ alignItems:'center', display:'flex', gap:8 }}>
+              Tjänst
+              <input type="checkbox" checked={editBusiness} onChange={e=>setEditBusiness(e.target.checked)} />
+            </label>
+            <label>
+              Förare
+              <input value={editDriver} onChange={e=>setEditDriver(e.target.value)} />
+            </label>
+            <label>
+              Startadress
+              <input value={editStartAddr} onChange={e=>setEditStartAddr(e.target.value)} />
+            </label>
+            <label>
+              Slutadress
+              <input value={editEndAddr} onChange={e=>setEditEndAddr(e.target.value)} />
+            </label>
+            <label>
+              Start mätarställning (km)
+              <input
+                inputMode="decimal"
+                value={editStartOdo ?? ''}
+                onChange={e=> setEditStartOdo(e.target.value === '' ? null : Number(e.target.value))}
+              />
+            </label>
+            <label>
+              Slut mätarställning (km)
+              <input
+                inputMode="decimal"
+                value={editEndOdo ?? ''}
+                onChange={e=> setEditEndOdo(e.target.value === '' ? null : Number(e.target.value))}
+              />
+            </label>
+            <label>
+              Starttid
+              <input
+                type="datetime-local"
+                value={editStartedAt}
+                onChange={e=> setEditStartedAt(e.target.value)}
+              />
+            </label>
+            <label>
+              Sluttid
+              <input
+                type="datetime-local"
+                value={editEndedAt}
+                onChange={e=> setEditEndedAt(e.target.value)}
+              />
+            </label>
+          </div>
+          <div style={{ display:'flex', gap:8, marginTop:12 }}>
+            <button onClick={saveEdit} disabled={editSaving}>{editSaving ? 'Sparar…' : 'Spara ändringar'}</button>
+            <button type="button" onClick={resetEditor}>Avbryt</button>
+            <button type="button" onClick={deleteEdit} disabled={editDeleting} style={{ color:'#b00020' }}>
+              {editDeleting ? 'Tar bort…' : 'Ta bort'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ color:'#666' }}>Klicka “Redigera” på en resa i listan nedan för att ändra eller ta bort.</div>
+      )}
 
       {/* Lista resor */}
       <h2 style={{ marginTop: 28, fontSize: 18 }}>Resor</h2>
@@ -467,6 +545,7 @@ export default function Home() {
               <th align="left">Km</th>
               <th align="left">Syfte</th>
               <th align="left">Typ</th>
+              <th align="left">Åtgärd</th>
             </tr>
           </thead>
           <tbody>
@@ -483,6 +562,9 @@ export default function Home() {
                 <td>{t.ended_at ? (t.distance_km ?? '-') : <em>Pågår</em>}</td>
                 <td>{t.purpose || ''}</td>
                 <td>{t.business ? 'Tjänst' : 'Privat'}</td>
+                <td>
+                  <button onClick={()=> loadTripIntoEditor(t)}>Redigera</button>
+                </td>
               </tr>
             ))}
           </tbody>
