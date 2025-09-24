@@ -144,93 +144,133 @@ export default function Home() {
 
   const round1 = (n: number) => Math.round(n * 10) / 10;
 
-  // HA: Force update + poll (returnerar km)
-  const haPollOdometer = async (): Promise<number | null> => {
-    try {
-      const res = await fetch(`${API}/integrations/home-assistant/force-update-and-poll`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vehicle_reg: (vehicle || 'UNKNOWN').trim() }),
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      return typeof data.value_km === 'number' ? data.value_km : null;
-    } catch {
-      return null;
-    }
-  };
+// HA: endast läsa sensor (utan force), returnerar km eller null
+const haPollOdometerNoForce = async (): Promise<number | null> => {
+  try {
+    const res = await fetch(`${API}/integrations/home-assistant/poll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vehicle_reg: (vehicle || 'UNKNOWN').trim() }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.value_km === 'number' ? data.value_km : null;
+  } catch {
+    return null;
+  }
+};  
+  
+// HA: Force update + poll (med force)
+const haForceUpdateAndPoll = async (): Promise<number | null> => {
+  try {
+    const res = await fetch(`${API}/integrations/home-assistant/force-update-and-poll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vehicle_reg: (vehicle || 'UNKNOWN').trim() }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.value_km === 'number' ? data.value_km : null;
+  } catch {
+    return null;
+  }
+};
+
 
   // ====== Starta/avsluta resa (oförändrat) ======
   const startTrip = async () => {
-    if (!vehicle.trim()) {
-      alert('Fyll i Regnr först (eller välj).');
+  if (!vehicle.trim()) {
+    alert('Fyll i Regnr först (eller välj).');
+    return;
+  }
+  try {
+    setStarting(true);
+
+    // 1) Om användaren matat in start-odo → använd det, ring inte HA.
+    let odo = startOdo;
+
+    // 2) Annars: prova att bara läsa nuvarande värde från HA (utan force).
+    if (odo == null) {
+      odo = await haPollOdometerNoForce();
+    }
+
+    // 3) Om fortfarande null: prova force update + poll.
+    if (odo == null) {
+      odo = await haForceUpdateAndPoll();
+    }
+
+    const body = {
+      vehicle_reg: vehicle.trim(),
+      start_odometer_km: odo ?? undefined, // undefined = fältet utelämnas om vi inte fick värde
+      purpose: purpose || undefined,
+      business,
+      driver_name: driver || undefined,
+      start_address: startAddress || undefined,
+    };
+    const r = await fetch(`${API}/trips/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      alert(`Kunde inte starta resa: ${txt}`);
       return;
     }
-    try {
-      setStarting(true);
-      let odo = await haPollOdometer();
-      if (odo == null) odo = startOdo ?? null;
-
-      const body = {
-        vehicle_reg: vehicle.trim(),
-        start_odometer_km: odo ?? undefined,
-        purpose: purpose || undefined,
-        business,
-        driver_name: driver || undefined,
-        start_address: startAddress || undefined,
-      };
-      const r = await fetch(`${API}/trips/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        const txt = await r.text();
-        alert(`Kunde inte starta resa: ${txt}`);
-        return;
-      }
-      setStartOdo(odo);
-      setEndOdo(null);
-      await loadTrips();
-    } finally {
-      setStarting(false);
-    }
-  };
+    setStartOdo(odo ?? null);
+    setEndOdo(null);
+    await loadTrips();
+  } finally {
+    setStarting(false);
+  }
+};
 
   const finishTrip = async () => {
-    if (!activeTrip) {
-      alert('Ingen pågående resa att avsluta.');
+  if (!activeTrip) {
+    alert('Ingen pågående resa att avsluta.');
+    return;
+  }
+  try {
+    setStopping(true);
+
+    // 1) Om användaren matat in slut-odo → använd det, ring inte HA.
+    let endVal = endOdo;
+
+    // 2) Annars: prova med force update först (ofta ger färskast värde vid stopp).
+    if (endVal == null) {
+      endVal = await haForceUpdateAndPoll();
+    }
+
+    // 3) Om fortfarande null: prova enkel poll utan force.
+    if (endVal == null) {
+      endVal = await haPollOdometerNoForce();
+    }
+
+    const body: any = {
+      trip_id: activeTrip.id,
+      end_odometer_km: endVal ?? undefined,
+      purpose: purpose || undefined,
+      business,
+      driver_name: driver || activeTrip.driver_name || undefined,
+      end_address: endAddress || undefined,
+    };
+    const r = await fetch(`${API}/trips/finish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      alert(`Kunde inte avsluta resa: ${txt}`);
       return;
     }
-    try {
-      setStopping(true);
-      let endVal = endOdo;
-      if (endVal == null) endVal = await haPollOdometer();
+    setEndOdo(endVal ?? null);
+    await loadTrips();
+  } finally {
+    setStopping(false);
+  }
+};
 
-      const body: any = {
-        trip_id: activeTrip.id,
-        end_odometer_km: endVal ?? undefined,
-        purpose: purpose || undefined,
-        business,
-        driver_name: driver || activeTrip.driver_name || undefined,
-        end_address: endAddress || undefined,
-      };
-      const r = await fetch(`${API}/trips/finish`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        const txt = await r.text();
-        alert(`Kunde inte avsluta resa: ${txt}`);
-        return;
-      }
-      setEndOdo(endVal ?? null);
-      await loadTrips();
-    } finally {
-      setStopping(false);
-    }
-  };
 
   // ====== Mall → fyll formulär ======
   const onPickTemplate = (val: string) => {
