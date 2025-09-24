@@ -88,7 +88,7 @@ export default function Home() {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
 
-  // Mall-val för att fylla formulär
+  // Mall-val för att fylla formulär (för resor)
   const [selectedTemplate, setSelectedTemplate] = useState<number | ''>('');
 
   // ==== Redigera resa ====
@@ -105,6 +105,16 @@ export default function Home() {
   const [editEndedAt, setEditEndedAt] = useState(''); // datetime-local
   const [editSaving, setEditSaving] = useState(false);
   const [editDeleting, setEditDeleting] = useState(false);
+
+  // ==== Hantera mallar (CRUD) ====
+  const [editTplId, setEditTplId] = useState<number | ''>(''); // '' = ny mall
+  const [tplName, setTplName] = useState('');
+  const [tplBusiness, setTplBusiness] = useState<boolean>(false); // false=privat, true=tjänst
+  const [tplPurpose, setTplPurpose] = useState('');
+  const [tplVehicle, setTplVehicle] = useState('');
+  const [tplDriver, setTplDriver] = useState('');
+  const [tplStartAddr, setTplStartAddr] = useState('');
+  const [tplEndAddr, setTplEndAddr] = useState('');
 
   const loadTrips = async () => {
     try {
@@ -144,135 +154,133 @@ export default function Home() {
 
   const round1 = (n: number) => Math.round(n * 10) / 10;
 
-// HA: endast läsa sensor (utan force), returnerar km eller null
-const haPollOdometerNoForce = async (): Promise<number | null> => {
-  try {
-    const res = await fetch(`${API}/integrations/home-assistant/poll`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vehicle_reg: (vehicle || 'UNKNOWN').trim() }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return typeof data.value_km === 'number' ? data.value_km : null;
-  } catch {
-    return null;
-  }
-};  
-  
-// HA: Force update + poll (med force)
-const haForceUpdateAndPoll = async (): Promise<number | null> => {
-  try {
-    const res = await fetch(`${API}/integrations/home-assistant/force-update-and-poll`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vehicle_reg: (vehicle || 'UNKNOWN').trim() }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return typeof data.value_km === 'number' ? data.value_km : null;
-  } catch {
-    return null;
-  }
-};
+  // HA: endast läsa sensor (utan force), returnerar km eller null
+  const haPollOdometerNoForce = async (): Promise<number | null> => {
+    try {
+      const res = await fetch(`${API}/integrations/home-assistant/poll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vehicle_reg: (vehicle || 'UNKNOWN').trim() }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return typeof data.value_km === 'number' ? data.value_km : null;
+    } catch {
+      return null;
+    }
+  };
 
+  // HA: Force update + poll (med force)
+  const haForceUpdateAndPoll = async (): Promise<number | null> => {
+    try {
+      const res = await fetch(`${API}/integrations/home-assistant/force-update-and-poll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vehicle_reg: (vehicle || 'UNKNOWN').trim() }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return typeof data.value_km === 'number' ? data.value_km : null;
+    } catch {
+      return null;
+    }
+  };
 
-  // ====== Starta/avsluta resa (oförändrat) ======
+  // ====== Starta/avsluta resa ======
   const startTrip = async () => {
-  if (!vehicle.trim()) {
-    alert('Fyll i Regnr först (eller välj).');
-    return;
-  }
-  try {
-    setStarting(true);
-
-    // 1) Om användaren matat in start-odo → använd det, ring inte HA.
-    let odo = startOdo;
-
-    // 2) Annars: prova att bara läsa nuvarande värde från HA (utan force).
-    if (odo == null) {
-      odo = await haPollOdometerNoForce();
-    }
-
-    // 3) Om fortfarande null: prova force update + poll.
-    if (odo == null) {
-      odo = await haForceUpdateAndPoll();
-    }
-
-    const body = {
-      vehicle_reg: vehicle.trim(),
-      start_odometer_km: odo ?? undefined, // undefined = fältet utelämnas om vi inte fick värde
-      purpose: purpose || undefined,
-      business,
-      driver_name: driver || undefined,
-      start_address: startAddress || undefined,
-    };
-    const r = await fetch(`${API}/trips/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) {
-      const txt = await r.text();
-      alert(`Kunde inte starta resa: ${txt}`);
+    if (!vehicle.trim()) {
+      alert('Fyll i Regnr först (eller välj).');
       return;
     }
-    setStartOdo(odo ?? null);
-    setEndOdo(null);
-    await loadTrips();
-  } finally {
-    setStarting(false);
-  }
-};
+    try {
+      setStarting(true);
+
+      // 1) Om användaren matat in start-odo → använd det, ring inte HA.
+      let odo = startOdo;
+
+      // 2) Annars: prova att bara läsa nuvarande värde från HA (utan force).
+      if (odo == null) {
+        odo = await haPollOdometerNoForce();
+      }
+
+      // 3) Om fortfarande null: prova force update + poll.
+      if (odo == null) {
+        odo = await haForceUpdateAndPoll();
+      }
+
+      const body = {
+        vehicle_reg: vehicle.trim(),
+        start_odometer_km: odo ?? undefined, // undefined = utelämna fältet om vi inte fick värde
+        purpose: purpose || undefined,
+        business,
+        driver_name: driver || undefined,
+        start_address: startAddress || undefined,
+      };
+      const r = await fetch(`${API}/trips/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const txt = await r.text();
+        alert(`Kunde inte starta resa: ${txt}`);
+        return;
+      }
+      setStartOdo(odo ?? null);
+      setEndOdo(null);
+      await loadTrips();
+    } finally {
+      setStarting(false);
+    }
+  };
 
   const finishTrip = async () => {
-  if (!activeTrip) {
-    alert('Ingen pågående resa att avsluta.');
-    return;
-  }
-  try {
-    setStopping(true);
-
-    // 1) Om användaren matat in slut-odo → använd det, ring inte HA.
-    let endVal = endOdo;
-
-    // 2) Annars: prova med force update först (ofta ger färskast värde vid stopp).
-    if (endVal == null) {
-      endVal = await haForceUpdateAndPoll();
-    }
-
-    // 3) Om fortfarande null: prova enkel poll utan force.
-    if (endVal == null) {
-      endVal = await haPollOdometerNoForce();
-    }
-
-    const body: any = {
-      trip_id: activeTrip.id,
-      end_odometer_km: endVal ?? undefined,
-      purpose: purpose || undefined,
-      business,
-      driver_name: driver || activeTrip.driver_name || undefined,
-      end_address: endAddress || undefined,
-    };
-    const r = await fetch(`${API}/trips/finish`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) {
-      const txt = await r.text();
-      alert(`Kunde inte avsluta resa: ${txt}`);
+    if (!activeTrip) {
+      alert('Ingen pågående resa att avsluta.');
       return;
     }
-    setEndOdo(endVal ?? null);
-    await loadTrips();
-  } finally {
-    setStopping(false);
-  }
-};
+    try {
+      setStopping(true);
 
+      // 1) Om användaren matat in slut-odo → använd det, ring inte HA.
+      let endVal = endOdo;
 
-  // ====== Mall → fyll formulär ======
+      // 2) Annars: prova med force update först (ofta färskast värde vid stopp).
+      if (endVal == null) {
+        endVal = await haForceUpdateAndPoll();
+      }
+
+      // 3) Om fortfarande null: prova enkel poll utan force.
+      if (endVal == null) {
+        endVal = await haPollOdometerNoForce();
+      }
+
+      const body: any = {
+        trip_id: activeTrip.id,
+        end_odometer_km: endVal ?? undefined,
+        purpose: purpose || undefined,
+        business,
+        driver_name: driver || activeTrip.driver_name || undefined,
+        end_address: endAddress || undefined,
+      };
+      const r = await fetch(`${API}/trips/finish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const txt = await r.text();
+        alert(`Kunde inte avsluta resa: ${txt}`);
+        return;
+      }
+      setEndOdo(endVal ?? null);
+      await loadTrips();
+    } finally {
+      setStopping(false);
+    }
+  };
+
+  // ====== Mall → fyll reseformulär ======
   const onPickTemplate = (val: string) => {
     if (!val) { setSelectedTemplate(''); return; }
     const id = parseInt(val, 10);
@@ -327,7 +335,7 @@ const haForceUpdateAndPoll = async (): Promise<number | null> => {
     setEditEndedAt('');
   };
 
-  // ====== Spara (PUT) / Ta bort (DELETE) ======
+  // ====== Spara (PUT) / Ta bort (DELETE) resa ======
   const saveEdit = async () => {
     if (!editId) return;
     if (!editVehicle.trim()) {
@@ -388,6 +396,82 @@ const haForceUpdateAndPoll = async (): Promise<number | null> => {
     }
   };
 
+  // ====== Hantera mallar (CRUD) ======
+  const resetTplForm = () => {
+    setEditTplId('');
+    setTplName('');
+    setTplBusiness(false);
+    setTplPurpose('');
+    setTplVehicle('');
+    setTplDriver('');
+    setTplStartAddr('');
+    setTplEndAddr('');
+  };
+
+  const loadTplIntoForm = (tpl: Template) => {
+    setEditTplId(tpl.id);
+    setTplName(tpl.name || '');
+    setTplBusiness(!!tpl.business);
+    setTplPurpose(tpl.default_purpose || '');
+    setTplVehicle(tpl.default_vehicle_reg || '');
+    setTplDriver(tpl.default_driver_name || '');
+    setTplStartAddr(tpl.default_start_address || '');
+    setTplEndAddr(tpl.default_end_address || '');
+  };
+
+  const onSelectTplToEdit = (idStr: string) => {
+    if (!idStr) { resetTplForm(); return; }
+    const id = parseInt(idStr, 10);
+    const tpl = templates.find(t => t.id === id);
+    if (tpl) loadTplIntoForm(tpl);
+  };
+
+  const saveTemplate = async () => {
+    // validering
+    if (!tplName.trim()) { alert('Namn krävs.'); return; }
+
+    const payload = {
+      name: tplName.trim(),
+      business: tplBusiness,
+      default_purpose: tplPurpose || null,
+      default_vehicle_reg: tplVehicle || null,
+      default_driver_name: tplDriver || null,
+      default_start_address: tplStartAddr || null,
+      default_end_address: tplEndAddr || null,
+      default_distance_km: null,
+    };
+
+    const isEdit = !!editTplId;
+    const url = isEdit ? `${API}/templates/${editTplId}` : `${API}/templates`;
+    const method = isEdit ? 'PUT' : 'POST';
+
+    const r = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      alert(`Kunde inte spara mall: ${txt}`);
+      return;
+    }
+    await loadTemplates();
+    resetTplForm();
+  };
+
+  const deleteTemplate = async () => {
+    if (!editTplId) return;
+    if (!confirm('Ta bort den här mallen?')) return;
+    const r = await fetch(`${API}/templates/${editTplId}`, { method: 'DELETE' });
+    if (!r.ok) {
+      const txt = await r.text();
+      alert(`Kunde inte ta bort mall: ${txt}`);
+      return;
+    }
+    await loadTemplates();
+    resetTplForm();
+  };
+
   return (
     <div>
       {/* Filter + export */}
@@ -405,7 +489,7 @@ const haForceUpdateAndPoll = async (): Promise<number | null> => {
         <button onClick={()=> window.open(`${API}/exports/journal.pdf${vehicle ? `?vehicle=${vehicle}` : ''}`, '_blank')}>Exportera PDF</button>
       </div>
 
-      {/* Mallval + basfält */}
+      {/* Mallval + basfält (för resor) */}
       <div style={{ display:'grid', gap:8, marginTop:12, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
         <label>
           Mall
@@ -492,7 +576,52 @@ const haForceUpdateAndPoll = async (): Promise<number | null> => {
         </div>
       )}
 
-      {/* Hantera resor: redigera/ta bort */}
+      {/* Hantera mallar */}
+      <h2 style={{ marginTop: 28, fontSize: 18 }}>Hantera mallar</h2>
+      <div style={{ display:'grid', gap:8, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
+        <label>
+          Välj mall
+          <select value={String(editTplId)} onChange={e=>onSelectTplToEdit(e.target.value)} style={{ marginLeft: 8 }}>
+            <option value="">– Ny mall –</option>
+            {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </label>
+        <label>
+          Namn
+          <input value={tplName} onChange={(e)=>setTplName(e.target.value)} />
+        </label>
+        <label style={{ alignItems:'center', display:'flex', gap:8 }}>
+          Privat (avmarkera = tjänst)
+          <input type="checkbox" checked={!tplBusiness ? true : false} onChange={(e)=>setTplBusiness(!e.target.checked)} />
+        </label>
+        <label>
+          Syfte
+          <input value={tplPurpose} onChange={(e)=>setTplPurpose(e.target.value)} />
+        </label>
+        <label>
+          Regnr
+          <input value={tplVehicle} onChange={(e)=>setTplVehicle(e.target.value)} />
+        </label>
+        <label>
+          Förare
+          <input value={tplDriver} onChange={(e)=>setTplDriver(e.target.value)} />
+        </label>
+        <label>
+          Startadress
+          <input value={tplStartAddr} onChange={(e)=>setTplStartAddr(e.target.value)} />
+        </label>
+        <label>
+          Slutadress
+          <input value={tplEndAddr} onChange={(e)=>setTplEndAddr(e.target.value)} />
+        </label>
+      </div>
+      <div style={{ display:'flex', gap:8, marginTop:8 }}>
+        <button onClick={saveTemplate}>{editTplId ? 'Spara ändringar' : 'Skapa mall'}</button>
+        <button onClick={resetTplForm} type="button">Rensa</button>
+        <button onClick={deleteTemplate} type="button" disabled={!editTplId}>Ta bort</button>
+      </div>
+
+      {/* Redigera/ta bort resa */}
       <h2 id="edit-panel" style={{ marginTop: 28, fontSize: 18 }}>Redigera resa</h2>
       {editId ? (
         <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12, background:'#fafafa' }}>
