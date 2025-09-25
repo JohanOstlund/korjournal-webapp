@@ -215,6 +215,7 @@ export default function Home() {
         business,
         driver_name: driver || undefined,
         start_address: startAddress || undefined,
+        end_address: endAddress || undefined, 
       };
       const r = await fetch(`${API}/trips/start`, {
         method: 'POST',
@@ -255,13 +256,8 @@ export default function Home() {
         endVal = await haPollOdometerNoForce();
       }
 
-      const body: any = {
-        trip_id: activeTrip.id,
-        end_odometer_km: endVal ?? undefined,
-        purpose: purpose || undefined,
-        business,
-        driver_name: driver || activeTrip.driver_name || undefined,
-        end_address: endAddress || undefined,
+      const body: any = { trip_id: activeTrip.id };
+    if (endVal != null) body.end_odometer_km = endVal;
       };
       const r = await fetch(`${API}/trips/finish`, {
         method: 'POST',
