@@ -127,6 +127,7 @@ class StartTripIn(BaseModel):
   business: bool = True
   driver_name: Optional[str] = None
   start_address: Optional[str] = None
+      end_address: Optional[str] = None
 
 class FinishTripIn(BaseModel):
   vehicle_reg: Optional[str] = None
@@ -236,6 +237,7 @@ def start_trip(payload: StartTripIn, db: Session = Depends(get_db)):
     business=payload.business,
     driver_name=payload.driver_name,
     start_address=payload.start_address,
+    end_address=payload.end_address,
   )
   db.add(trip); db.commit(); db.refresh(trip)
 
