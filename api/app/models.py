@@ -1,86 +1,87 @@
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy.orm import relationship
 from datetime import datetime
-from typing import Optional
-from sqlalchemy import String, Integer, Float, Boolean, DateTime, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
-
-class User(Base):
-    __tablename__ = "users"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True)
-    name: Mapped[str] = mapped_column(String(255))
-    role: Mapped[str] = mapped_column(String(50), default="driver")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 class Vehicle(Base):
     __tablename__ = "vehicles"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    reg_no: Mapped[str] = mapped_column(String(20), unique=True, index=True)
-    make: Mapped[Optional[str]] = mapped_column(String(80))
-    model: Mapped[Optional[str]] = mapped_column(String(80))
-    year: Mapped[Optional[int]] = mapped_column(Integer)
+    id = Column(Integer, primary_key=True)
+    reg_no = Column(String(32), unique=True, index=True, nullable=False)
+    trips = relationship("Trip", back_populates="vehicle")
+    odometer_snaps = relationship("OdometerSnapshot", back_populates="vehicle")
 
 class Place(Base):
     __tablename__ = "places"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[Optional[str]] = mapped_column(String(120))
-    address: Mapped[Optional[str]] = mapped_column(String(255))
-    lat: Mapped[Optional[float]]
-    lon: Mapped[Optional[float]]
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255))
+    address = Column(Text)
+    lat = Column(Float)
+    lon = Column(Float)
 
 class Trip(Base):
     __tablename__ = "trips"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"))
-    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    id = Column(Integer, primary_key=True)
+    vehicle_id = Column(Integer, ForeignKey("vehicles.id"), nullable=False, index=True)
 
-    started_at: Mapped[datetime] = mapped_column(DateTime)
-    ended_at: Mapped[datetime] = mapped_column(DateTime)
+    started_at = Column(DateTime, nullable=False, index=True)
+    ended_at = Column(DateTime, nullable=True, index=True)  # NULL = pågående
 
-    start_odometer_km: Mapped[Optional[float]] = mapped_column(Float)
-    end_odometer_km: Mapped[Optional[float]] = mapped_column(Float)
-    distance_km: Mapped[Optional[float]] = mapped_column(Float)
+    start_odometer_km = Column(Float)
+    end_odometer_km = Column(Float)
+    distance_km = Column(Float)
 
-    start_place_id: Mapped[Optional[int]] = mapped_column(ForeignKey("places.id"))
-    end_place_id: Mapped[Optional[int]] = mapped_column(ForeignKey("places.id"))
+    start_place_id = Column(Integer, ForeignKey("places.id"))
+    end_place_id = Column(Integer, ForeignKey("places.id"))
 
-    purpose: Mapped[Optional[str]] = mapped_column(String(255))
-    business: Mapped[bool] = mapped_column(Boolean, default=True)
-    notes: Mapped[Optional[str]] = mapped_column(String(1000))
+    purpose = Column(String(255))
+    business = Column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Nya fria fält som UI/CSV använder
+    driver_name = Column(String(255), nullable=True)
+    start_address = Column(String(255), nullable=True)
+    end_address   = Column(String(255), nullable=True)
 
-    vehicle: Mapped["Vehicle"] = relationship()
-    start_place: Mapped[Optional["Place"]] = relationship(foreign_keys=[start_place_id])
-    end_place: Mapped[Optional["Place"]] = relationship(foreign_keys=[end_place_id])
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    vehicle = relationship("Vehicle", back_populates="trips")
+    start_place = relationship("Place", foreign_keys=[start_place_id])
+    end_place = relationship("Place", foreign_keys=[end_place_id])
 
 class OdometerSnapshot(Base):
-    __tablename__ = "odometer_snapshots"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"))
-    at: Mapped[datetime] = mapped_column(DateTime)
-    value_km: Mapped[float] = mapped_column(Float)
-    source: Mapped[Optional[str]] = mapped_column(String(50))  # 'kia_uvo','manual','ha'
+    __tablename__ = "odometer_snaps"
+    id = Column(Integer, primary_key=True)
+    vehicle_id = Column(Integer, ForeignKey("vehicles.id"), index=True, nullable=False)
+    at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    value_km = Column(Float, nullable=False)
+    source = Column(String(64))
+    vehicle = relationship("Vehicle", back_populates="odometer_snaps")
 
 class TripTemplate(Base):
     __tablename__ = "trip_templates"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
-    default_purpose: Mapped[Optional[str]] = mapped_column(String(255))
-    business: Mapped[bool] = mapped_column(Boolean, default=True)
-    default_distance_km: Mapped[Optional[float]] = mapped_column(Float)
-    start_place_id: Mapped[Optional[int]] = mapped_column(ForeignKey("places.id"))
-    end_place_id: Mapped[Optional[int]] = mapped_column(ForeignKey("places.id"))
-    start_place: Mapped[Optional["Place"]] = relationship(foreign_keys=[start_place_id])
-    end_place:   Mapped[Optional["Place"]] = relationship(foreign_keys=[end_place_id])
+    id = Column(Integer, primary_key=True)
+    name = Column(String(128), nullable=False, unique=True)
+
+    # som tidigare
+    default_purpose = Column(String(255))
+    business = Column(Boolean, default=True)   # True = tjänst, False = privat
+    default_distance_km = Column(Float)
+
+    # platsrelationer (kan användas senare)
+    start_place_id = Column(Integer, ForeignKey("places.id"))
+    end_place_id = Column(Integer, ForeignKey("places.id"))
+
+    # NYTT: egna defaultfält som UI vill ha
+    default_vehicle_reg = Column(String(32))
+    default_driver_name = Column(String(255))
+    default_start_address = Column(String(255))
+    default_end_address   = Column(String(255))
+
+    start_place = relationship("Place", foreign_keys=[start_place_id])
+    end_place = relationship("Place", foreign_keys=[end_place_id])
 
 class Setting(Base):
-    """
-    Enkel key/value-lagring för inställningar (t.ex. HA_BASE_URL, HA_TOKEN, HA_ENTITY).
-    Token returneras aldrig i klartext av API:t.
-    """
     __tablename__ = "settings"
-    key: Mapped[str] = mapped_column(String(120), primary_key=True)
-    value: Mapped[str] = mapped_column(String(4096))
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    key = Column(String(128), primary_key=True)
+    value = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
