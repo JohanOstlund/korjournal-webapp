@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const fetchAuth = (url: string, options: RequestInit = {}) =>
+  fetch(url, { credentials: 'include', ...options });
 
 type Settings = {
   ha_base_url?: string | null;
@@ -22,12 +24,12 @@ export default function SettingsPage() {
   const loadSettings = async () => {
     try {
       setLoading(true);
-      const r = await fetch(`${API}/settings?_ts=${Date.now()}`, { cache: 'no-store' });
+      const r = await fetchAuth(`${API}/settings?_ts=${Date.now()}`, { cache: 'no-store' });
       if (!r.ok) throw new Error(`GET /settings ${r.status}`);
       const s = (await r.json()) as Settings;
       setHaUrl((s.ha_base_url || '') as string);
       setHaEntity((s.ha_odometer_entity || '') as string);
-      setHaTokenAlreadySet(!!s.ha_token_set); // om backend exponerar detta
+      setHaTokenAlreadySet(!!s.ha_token_set);
       setStatus('Inställningar laddade.');
     } catch (e: any) {
       setStatus(`Fel vid laddning: ${e?.message || e}`);
@@ -43,12 +45,11 @@ export default function SettingsPage() {
       ha_base_url: haUrl || null,
       ha_odometer_entity: haEntity || null,
     };
-    // Skicka endast token om användaren angett något nytt
     if (haTokenInput.trim().length > 0) {
       payload.ha_token = haTokenInput.trim();
     }
 
-    const r = await fetch(`${API}/settings`, {
+    const r = await fetchAuth(`${API}/settings`, {
       method: 'PUT', // eller POST beroende på ditt API; byt om nödvändigt
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -64,7 +65,7 @@ export default function SettingsPage() {
 
   const testPoll = async () => {
     try {
-      const r = await fetch(`${API}/integrations/home-assistant/poll`, {
+      const r = await fetchAuth(`${API}/integrations/home-assistant/poll`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ vehicle_reg: 'TEST' }),
@@ -78,7 +79,7 @@ export default function SettingsPage() {
 
   const testForce = async () => {
     try {
-      const r = await fetch(`${API}/integrations/home-assistant/force-update-and-poll`, {
+      const r = await fetchAuth(`${API}/integrations/home-assistant/force-update-and-poll`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ vehicle_reg: 'TEST' }),
