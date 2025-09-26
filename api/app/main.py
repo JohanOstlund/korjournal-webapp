@@ -127,7 +127,7 @@ class StartTripIn(BaseModel):
   business: bool = True
   driver_name: Optional[str] = None
   start_address: Optional[str] = None
-      end_address: Optional[str] = None
+  end_address: Optional[str] = None
 
 class FinishTripIn(BaseModel):
   vehicle_reg: Optional[str] = None
