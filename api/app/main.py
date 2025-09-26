@@ -1,37 +1,44 @@
-import os, hashlib
-from fastapi import FastAPI, Depends, Query, Response, HTTPException, Path
+import os, hashlib, math, json, asyncio
+from datetime import datetime
+from typing import Optional, List, Tuple
+
+import httpx
+from fastapi import FastAPI, APIRouter, Depends, Query, Response, HTTPException, Path, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, text
-from datetime import datetime
-from typing import Optional, List, Tuple
-import httpx, os, asyncio, json, math
+from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-
 from .db import SessionLocal, engine
-from .models import Base, Trip, Vehicle, Place, OdometerSnapshot, TripTemplate, Setting
+from .models import Base, Trip, Vehicle, Place, OdometerSnapshot, TripTemplate, Setting, User
 from .pdf import render_journal_pdf
-
-from .database import get_db
-from .models import User
 from .security import sign_jwt, verify_jwt
-    
+
+# -------------------- DB setup --------------------
 Base.metadata.create_all(bind=engine)
 
+def get_db():
+  db = SessionLocal()
+  try:
+    yield db
+  finally:
+    db.close()
+
+# -------------------- FastAPI app --------------------
 app = FastAPI(title="Körjournal API")
 
 origins = os.getenv("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
+    allow_origins=origins,          # tips: sätt specifika domäner i produktion
+    allow_credentials=True,         # krävs för cookies
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# -------------------- HA env --------------------
 ENV_HA_BASE_URL = os.getenv("HA_BASE_URL")
 ENV_HA_TOKEN    = os.getenv("HA_TOKEN")
 ENV_HA_ENTITY   = os.getenv("HA_ODOMETER_ENTITY")
@@ -39,6 +46,7 @@ ENV_HA_FORCE_DOMAIN  = os.getenv("HA_FORCE_DOMAIN", "kia_uvo")
 ENV_HA_FORCE_SERVICE = os.getenv("HA_FORCE_SERVICE", "force_update")
 ENV_HA_FORCE_DATA    = os.getenv("HA_FORCE_DATA")
 
+# -------------------- Auth helpers --------------------
 COOKIE_NAME = "session"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE","false").lower()=="true"
 COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE","lax")  # 'lax'/'none'/'strict'
@@ -49,28 +57,26 @@ def hash_pw(pw: str) -> str:
 def ensure_admin(db: Session):
     u = db.query(User).filter(User.username==os.getenv("ADMIN_USERNAME","admin")).first()
     if not u:
-      u = User(username=os.getenv("ADMIN_USERNAME","admin"),
-               password_hash=hash_pw(os.getenv("ADMIN_PASSWORD","admin")))
-      db.add(u); db.commit()
+        u = User(
+            username=os.getenv("ADMIN_USERNAME","admin"),
+            password_hash=hash_pw(os.getenv("ADMIN_PASSWORD","admin")),
+        )
+        db.add(u); db.commit()
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     token = request.cookies.get(COOKIE_NAME)
-    if not token: raise HTTPException(401, "Not authenticated")
+    if not token:
+        raise HTTPException(401, "Not authenticated")
     ok, payload = verify_jwt(token)
-    if not ok: raise HTTPException(401, "Invalid session")
+    if not ok:
+        raise HTTPException(401, "Invalid session")
     username = payload.get("sub")
     u = db.query(User).filter(User.username==username).first()
-    if not u: raise HTTPException(401, "User not found")
+    if not u:
+        raise HTTPException(401, "User not found")
     return u
 
-
-def get_db():
-  db = SessionLocal()
-  try:
-    yield db
-  finally:
-    db.close()
-
+# -------------------- Settings helpers --------------------
 def get_setting(db: Session, key: str) -> Optional[str]:
   s = db.query(Setting).filter(Setting.key == key).first()
   return s.value if s else None
@@ -98,6 +104,7 @@ def get_ha_config(db: Session) -> Tuple[Optional[str], Optional[str], Optional[s
     except Exception: data_json = None
   return base, token, entity, domain, service, data_json
 
+# -------------------- Geo helpers --------------------
 def haversine(lat1, lon1, lat2, lon2):
   R = 6371.0
   phi1, phi2 = math.radians(lat1), math.radians(lat2)
@@ -120,7 +127,7 @@ async def osrm_distance_km(a_lat, a_lon, b_lat, b_lon) -> Optional[float]:
   except Exception:
     return None
 
-# ---- Pydantic modeller ----
+# -------------------- Pydantic models --------------------
 class LoginIn(BaseModel):
     username: str
     password: str
@@ -175,7 +182,6 @@ class FinishTripIn(BaseModel):
   driver_name: Optional[str] = None
   end_address: Optional[str] = None
 
-# Templates
 class TemplateIn(BaseModel):
   name: str
   default_purpose: Optional[str] = None
@@ -212,6 +218,7 @@ class HASettingsIn(BaseModel):
   force_service: Optional[str] = None
   force_data_json: Optional[dict] = None
 
+# -------------------- Business helpers --------------------
 def ensure_no_overlap(db: Session, vehicle_id: int, start: datetime, end: Optional[datetime], exclude_id: Optional[int]=None):
   q = db.query(Trip).filter(Trip.vehicle_id==vehicle_id)
   if exclude_id:
@@ -238,14 +245,49 @@ def odo_delta_distance(start_odo: Optional[float], end_odo: Optional[float]) -> 
     return None
   return round(d, 1)
 
-# -------ensure_adming i startup -------
+# -------------------- Startup hooks --------------------
 @app.on_event("startup")
-def _startup():
-    with next(get_db()) as db:
+def _startup_admin():
+    db = SessionLocal()
+    try:
         ensure_admin(db)
+    finally:
+        db.close()
 
+@app.on_event("startup")
+def seed_default_templates():
+  db = SessionLocal()
+  try:
+    names = {"Till jobbet", "Från jobbet"}
+    existing = {t.name for t in db.query(TripTemplate).filter(TripTemplate.name.in_(names)).all()}
 
-# ---------- Auth-Endpoints -----------
+    if "Till jobbet" not in existing:
+      db.add(TripTemplate(
+        name="Till jobbet",
+        business=False,
+        default_purpose="Pendling arbete",
+        default_vehicle_reg="ABC123",
+        default_driver_name="John Doe",
+        default_start_address="Gatan1",
+        default_end_address="Gatan2",
+      ))
+
+    if "Från jobbet" not in existing:
+      db.add(TripTemplate(
+        name="Från jobbet",
+        business=False,
+        default_purpose="Pendling arbete",
+        default_vehicle_reg="ABC123",
+        default_driver_name="John Doe",
+        default_start_address="Gatan1",
+        default_end_address="Gatan2",
+      ))
+
+    db.commit()
+  finally:
+    db.close()
+
+# -------------------- Auth (öppna) --------------------
 @app.post("/auth/login")
 def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
     u = db.query(User).filter(User.username==payload.username).first()
@@ -267,7 +309,7 @@ def logout(response: Response):
 def me(user: User = Depends(get_current_user)):
     return {"username": user.username}
 
-# ---------- Health ----------
+# -------------------- Health (öppen) --------------------
 @app.get("/health")
 def health(db: Session = Depends(get_db)):
   try:
@@ -277,8 +319,16 @@ def health(db: Session = Depends(get_db)):
     print("HEALTHCHECK DB ERROR:", repr(e))
     return JSONResponse({"status": "db_error", "error": str(e)}, status_code=500)
 
+# ======================================================
+# ================  PROTECTED ROUTER  ==================
+# ======================================================
+protected = APIRouter(
+    prefix="",
+    dependencies=[Depends(get_current_user)]
+)
+
 # ---------- Trips: start/finish ----------
-@app.post("/trips/start", response_model=TripOut)
+@protected.post("/trips/start", response_model=TripOut)
 def start_trip(payload: StartTripIn, db: Session = Depends(get_db)):
   veh = db.query(Vehicle).filter(Vehicle.reg_no == payload.vehicle_reg).first()
   if not veh:
@@ -312,7 +362,7 @@ def start_trip(payload: StartTripIn, db: Session = Depends(get_db)):
     driver_name=trip.driver_name, start_address=trip.start_address, end_address=trip.end_address
   )
 
-@app.post("/trips/finish", response_model=TripOut)
+@protected.post("/trips/finish", response_model=TripOut)
 def finish_trip(payload: FinishTripIn, db: Session = Depends(get_db)):
   t: Optional[Trip] = None
   if payload.trip_id:
@@ -358,8 +408,8 @@ def finish_trip(payload: FinishTripIn, db: Session = Depends(get_db)):
     driver_name=t.driver_name, start_address=t.start_address, end_address=t.end_address
   )
 
-# ---------- CRUD ----------
-@app.post("/trips", response_model=TripOut)
+# ---------- Trips CRUD ----------
+@protected.post("/trips", response_model=TripOut)
 def create_trip(payload: TripIn, db: Session = Depends(get_db)):
   veh = db.query(Vehicle).filter(Vehicle.reg_no == payload.vehicle_reg).first()
   if not veh:
@@ -400,7 +450,7 @@ def create_trip(payload: TripIn, db: Session = Depends(get_db)):
     driver_name=trip.driver_name, start_address=trip.start_address, end_address=trip.end_address
   )
 
-@app.put("/trips/{trip_id}", response_model=TripOut)
+@protected.put("/trips/{trip_id}", response_model=TripOut)
 def update_trip(trip_id: int = Path(...), payload: TripIn = None, db: Session = Depends(get_db)):
   trip = db.query(Trip).get(trip_id)
   if not trip:
@@ -448,7 +498,7 @@ def update_trip(trip_id: int = Path(...), payload: TripIn = None, db: Session = 
     driver_name=trip.driver_name, start_address=trip.start_address, end_address=trip.end_address
   )
 
-@app.delete("/trips/{trip_id}")
+@protected.delete("/trips/{trip_id}")
 def delete_trip(trip_id: int, db: Session = Depends(get_db)):
   t = db.query(Trip).get(trip_id)
   if not t:
@@ -456,7 +506,7 @@ def delete_trip(trip_id: int, db: Session = Depends(get_db)):
   db.delete(t); db.commit()
   return {"status": "deleted"}
 
-@app.get("/trips", response_model=None)
+@protected.get("/trips", response_model=None)
 def list_trips(
   db: Session = Depends(get_db),
   vehicle: Optional[str] = Query(None),
@@ -490,7 +540,7 @@ def list_trips(
   return response
 
 # ---------- Templates ----------
-@app.get("/templates", response_model=List[TemplateOut])
+@protected.get("/templates", response_model=List[TemplateOut])
 def list_templates(db: Session = Depends(get_db)):
   tpls = db.query(TripTemplate).order_by(TripTemplate.name.asc()).all()
   out = []
@@ -508,9 +558,8 @@ def list_templates(db: Session = Depends(get_db)):
     ))
   return out
 
-@app.post("/templates", response_model=TemplateOut)
+@protected.post("/templates", response_model=TemplateOut)
 def create_template(payload: TemplateIn, db: Session = Depends(get_db)):
-  # enkel unikhetskontroll på namn
   exists = db.query(TripTemplate).filter(TripTemplate.name == payload.name).first()
   if exists:
     raise HTTPException(400, "En mall med detta namn finns redan")
@@ -534,13 +583,12 @@ def create_template(payload: TemplateIn, db: Session = Depends(get_db)):
     default_end_address=t.default_end_address
   )
 
-@app.put("/templates/{tpl_id}", response_model=TemplateOut)
+@protected.put("/templates/{tpl_id}", response_model=TemplateOut)
 def update_template(tpl_id: int, payload: TemplateIn, db: Session = Depends(get_db)):
   t = db.query(TripTemplate).get(tpl_id)
   if not t:
     raise HTTPException(404, "Template not found")
 
-  # Om man byter namn, kontrollera krock
   if payload.name and payload.name != t.name:
     exists = db.query(TripTemplate).filter(TripTemplate.name == payload.name).first()
     if exists:
@@ -568,7 +616,7 @@ def update_template(tpl_id: int, payload: TemplateIn, db: Session = Depends(get_
     default_end_address=t.default_end_address,
   )
 
-@app.delete("/templates/{tpl_id}")
+@protected.delete("/templates/{tpl_id}")
 def delete_template(tpl_id: int, db: Session = Depends(get_db)):
   t = db.query(TripTemplate).get(tpl_id)
   if not t:
@@ -576,7 +624,7 @@ def delete_template(tpl_id: int, db: Session = Depends(get_db)):
   db.delete(t); db.commit()
   return {"status": "deleted"}
 
-@app.post("/templates/{tpl_id}/apply", response_model=TripOut)
+@protected.post("/templates/{tpl_id}/apply", response_model=TripOut)
 def apply_template(tpl_id: int, payload: TripIn, db: Session = Depends(get_db)):
   tpl = db.query(TripTemplate).get(tpl_id)
   if not tpl: raise HTTPException(404, "Template not found")
@@ -626,8 +674,8 @@ def apply_template(tpl_id: int, payload: TripIn, db: Session = Depends(get_db)):
     driver_name=trip.driver_name, start_address=trip.start_address, end_address=trip.end_address
   )
 
-# ---------- Exports (oförändrat) ----------
-@app.get("/exports/journal.csv")
+# ---------- Exports ----------
+@protected.get("/exports/journal.csv")
 def export_csv(
   db: Session = Depends(get_db),
   vehicle: Optional[str] = Query(None),
@@ -667,7 +715,7 @@ def export_csv(
   return Response(content=csv_bytes, media_type="text/csv",
                   headers={"Content-Disposition": "attachment; filename=korjournal.csv"})
 
-@app.get("/exports/journal.pdf")
+@protected.get("/exports/journal.pdf")
 def export_pdf_endpoint(
   db: Session = Depends(get_db),
   vehicle: Optional[str] = Query(None),
@@ -696,8 +744,8 @@ def export_pdf_endpoint(
   return Response(content=pdf_bytes, media_type="application/pdf",
                   headers={"Content-Disposition": "attachment; filename=korjournal.pdf"})
 
-# ---------- HA-integration (oförändrat) ----------
-@app.post("/integrations/home-assistant/poll")
+# ---------- HA integration ----------
+@protected.post("/integrations/home-assistant/poll")
 async def ha_poll(payload: HAPollIn, db: Session = Depends(get_db)):
     base, token, entity, *_ = get_ha_config(db)
     if not (base and token and (entity or payload.entity_id)):
@@ -717,7 +765,7 @@ async def ha_poll(payload: HAPollIn, db: Session = Depends(get_db)):
       at = datetime.utcnow()
     return {"status": "ok", "value_km": value_km, "entity": eid, "at": at.isoformat()}
 
-@app.post("/integrations/home-assistant/force-update-and-poll")
+@protected.post("/integrations/home-assistant/force-update-and-poll")
 async def ha_force_update_and_poll(payload: HAPollIn, wait_seconds: int = 15, db: Session = Depends(get_db)):
     base, token, entity, domain, service, data_json = get_ha_config(db)
     if not (base and token):
@@ -730,37 +778,6 @@ async def ha_force_update_and_poll(payload: HAPollIn, wait_seconds: int = 15, db
             raise HTTPException(s.status_code, f"HA service call failed: {s.text}")
     await asyncio.sleep(wait_seconds)
     return await ha_poll(payload, db)
-    
-# ---------- Seed av standardmallar ----------
-@app.on_event("startup")
-def seed_default_templates():
-  db = SessionLocal()
-  try:
-    names = {"Till jobbet", "Från jobbet"}
-    existing = {t.name for t in db.query(TripTemplate).filter(TripTemplate.name.in_(names)).all()}
 
-    if "Till jobbet" not in existing:
-      db.add(TripTemplate(
-        name="Till jobbet",
-        business=False,  # privat
-        default_purpose="Pendling arbete",
-        default_vehicle_reg="ABC123",
-        default_driver_name="John Doe",
-        default_start_address="Gatan1",
-        default_end_address="Gatan2",
-      ))
-
-    if "Från jobbet" not in existing:
-      db.add(TripTemplate(
-        name="Från jobbet",
-        business=False,  # privat
-        default_purpose="Pendling arbete",
-        default_vehicle_reg="ABC123",
-        default_driver_name="John Doe",
-        default_start_address="Gatan1",
-        default_end_address="Gatan2",
-      ))
-
-    db.commit()
-  finally:
-    db.close()
+# -------------------- Mount protected router --------------------
+app.include_router(protected)
