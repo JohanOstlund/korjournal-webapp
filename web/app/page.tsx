@@ -18,6 +18,17 @@ type Trip = {
   end_address?: string | null;
 };
 
+type Template = {
+  id: number;
+  name: string;
+  default_purpose?: string | null;
+  business: boolean;
+  default_vehicle_reg?: string | null;
+  default_driver_name?: string | null;
+  default_start_address?: string | null;
+  default_end_address?: string | null;
+};
+
 // Tolka serverns datum (UTC/naivt) -> Date
 const parseServerDate = (isoOrNaive: string | null): Date | null => {
   if (!isoOrNaive) return null;
@@ -88,6 +99,10 @@ export default function Home() {
   const [editSaving, setEditSaving] = useState(false);
   const [editDeleting, setEditDeleting] = useState(false);
 
+  // ==== Använd mall (dropdown) ====
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<number | ''>('');
+
   const loadTrips = async () => {
     try {
       setLoading(true);
@@ -108,6 +123,19 @@ export default function Home() {
   };
 
   useEffect(() => { loadTrips(); }, [vehicle]);
+
+  // Ladda mallar för dropdown (utan CRUD här)
+  useEffect(() => {
+    const loadTemplates = async () => {
+      try {
+        const r = await fetch(`${API}/templates?_ts=${Date.now()}`, { cache: 'no-store' });
+        if (r.ok) setTemplates(await r.json());
+      } catch (e) {
+        console.error('Kunde inte ladda mallar', e);
+      }
+    };
+    loadTemplates();
+  }, []);
 
   // Aktiv resa för det valda fordonet (eller första aktiva om vehicle är tomt)
   const activeTrip = useMemo(() => {
@@ -241,9 +269,25 @@ export default function Home() {
     }
   };
 
+  // Mall → fyll reseformulär
+  const onPickTemplate = (val: string) => {
+    if (!val) { setSelectedTemplate(''); return; }
+    const id = parseInt(val, 10);
+    setSelectedTemplate(id);
+    const t = templates.find(x => x.id === id);
+    if (t) {
+      if (t.default_vehicle_reg) setVehicle(t.default_vehicle_reg);
+      if (t.default_driver_name) setDriver(t.default_driver_name);
+      if (t.default_start_address) setStartAddress(t.default_start_address);
+      if (t.default_end_address) setEndAddress(t.default_end_address);
+      if (typeof t.business === 'boolean') setBusiness(t.business);
+      if (t.default_purpose) setPurpose(t.default_purpose);
+    }
+  };
+
   const activeKmLive = useMemo(() => {
     if (!activeTrip) return undefined;
-    if (startOdo != null && endOdo != null) return round1(endOdo - startOdo);
+    if (startOdo != null && endOdo != null) return Math.round((endOdo - startOdo) * 10) / 10;
     return undefined;
   }, [activeTrip, startOdo, endOdo]);
 
@@ -357,8 +401,15 @@ export default function Home() {
         <button onClick={()=> window.open(`${API}/exports/journal.pdf${vehicle ? `?vehicle=${vehicle}` : ''}`, '_blank')}>Exportera PDF</button>
       </div>
 
-      {/* Basfält för ny/pågående resa */}
+      {/* Mallval + basfält för ny/pågående resa */}
       <div style={{ display:'grid', gap:8, marginTop:12, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
+        <label>
+          Mall
+          <select value={String(selectedTemplate)} onChange={e=>onPickTemplate(e.target.value)} style={{ marginLeft: 8 }}>
+            <option value="">– Välj mall –</option>
+            {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </label>
         <label>
           Syfte
           <input value={purpose} onChange={e=>setPurpose(e.target.value)} />
