@@ -1,3 +1,4 @@
+import os, hashlib
 from fastapi import FastAPI, Depends, Query, Response, HTTPException, Path
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -9,10 +10,15 @@ from typing import Optional, List, Tuple
 import httpx, os, asyncio, json, math
 from pydantic import BaseModel
 
+
 from .db import SessionLocal, engine
 from .models import Base, Trip, Vehicle, Place, OdometerSnapshot, TripTemplate, Setting
 from .pdf import render_journal_pdf
 
+from .database import get_db
+from .models import User
+from .security import sign_jwt, verify_jwt
+    
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Körjournal API")
@@ -32,6 +38,31 @@ ENV_HA_ENTITY   = os.getenv("HA_ODOMETER_ENTITY")
 ENV_HA_FORCE_DOMAIN  = os.getenv("HA_FORCE_DOMAIN", "kia_uvo")
 ENV_HA_FORCE_SERVICE = os.getenv("HA_FORCE_SERVICE", "force_update")
 ENV_HA_FORCE_DATA    = os.getenv("HA_FORCE_DATA")
+
+COOKIE_NAME = "session"
+COOKIE_SECURE = os.getenv("COOKIE_SECURE","false").lower()=="true"
+COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE","lax")  # 'lax'/'none'/'strict'
+
+def hash_pw(pw: str) -> str:
+    return hashlib.sha256(pw.encode()).hexdigest()
+
+def ensure_admin(db: Session):
+    u = db.query(User).filter(User.username==os.getenv("ADMIN_USERNAME","admin")).first()
+    if not u:
+      u = User(username=os.getenv("ADMIN_USERNAME","admin"),
+               password_hash=hash_pw(os.getenv("ADMIN_PASSWORD","admin")))
+      db.add(u); db.commit()
+
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
+    token = request.cookies.get(COOKIE_NAME)
+    if not token: raise HTTPException(401, "Not authenticated")
+    ok, payload = verify_jwt(token)
+    if not ok: raise HTTPException(401, "Invalid session")
+    username = payload.get("sub")
+    u = db.query(User).filter(User.username==username).first()
+    if not u: raise HTTPException(401, "User not found")
+    return u
+
 
 def get_db():
   db = SessionLocal()
@@ -90,6 +121,10 @@ async def osrm_distance_km(a_lat, a_lon, b_lat, b_lon) -> Optional[float]:
     return None
 
 # ---- Pydantic modeller ----
+class LoginIn(BaseModel):
+    username: str
+    password: str
+
 class TripIn(BaseModel):
   vehicle_reg: str
   started_at: datetime
@@ -202,6 +237,35 @@ def odo_delta_distance(start_odo: Optional[float], end_odo: Optional[float]) -> 
   if d < 0:
     return None
   return round(d, 1)
+
+# -------ensure_adming i startup -------
+@app.on_event("startup")
+def _startup():
+    with next(get_db()) as db:
+        ensure_admin(db)
+
+
+# ---------- Auth-Endpoints -----------
+@app.post("/auth/login")
+def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
+    u = db.query(User).filter(User.username==payload.username).first()
+    if not u or u.password_hash != hash_pw(payload.password):
+        raise HTTPException(401, "Fel användarnamn eller lösenord")
+    token = sign_jwt({"sub": u.username})
+    response.set_cookie(
+        key=COOKIE_NAME, value=token, httponly=True, secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE, path="/"
+    )
+    return {"ok": True, "user": {"username": u.username}}
+
+@app.post("/auth/logout")
+def logout(response: Response):
+    response.delete_cookie(COOKIE_NAME, path="/")
+    return {"ok": True}
+
+@app.get("/auth/me")
+def me(user: User = Depends(get_current_user)):
+    return {"username": user.username}
 
 # ---------- Health ----------
 @app.get("/health")
