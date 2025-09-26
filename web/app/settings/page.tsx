@@ -3,144 +3,142 @@ import { useEffect, useState } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
-type HASettings = {
-  base_url?: string;
-  entity_id?: string;
-  force_domain: string;
-  force_service: string;
-  has_token: boolean;
-  token_last4?: string | null;
+type Settings = {
+  ha_base_url?: string | null;
+  ha_token_set?: boolean;          // backend kan returnera flagga istället för token
+  ha_token?: string | null;        // skickas endast vid POST/PUT från klient
+  ha_odometer_entity?: string | null;
 };
 
 export default function SettingsPage() {
-  const [s, setS] = useState<HASettings | null>(null);
-  const [form, setForm] = useState({
-    base_url: '',
-    entity_id: '',
-    token: '',
-    force_domain: 'kia_uvo',
-    force_service: 'force_update',
-    force_data_json: '' as string,
-  });
-  const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState<{type:'ok'|'err', text:string} | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState('');
 
-  const showNotice = (type:'ok'|'err', text:string) => {
-    setNotice({type, text});
-    setTimeout(()=> setNotice(null), 4000);
-  };
+  const [haUrl, setHaUrl] = useState('');
+  const [haEntity, setHaEntity] = useState('');
+  const [haTokenInput, setHaTokenInput] = useState(''); // skrivs in i ett password-fält
+  const [haTokenAlreadySet, setHaTokenAlreadySet] = useState(false); // visa “•••” i UI
 
-  const load = async () => {
-    const r = await fetch(`${API}/settings/ha`);
-    if (!r.ok) { showNotice('err', `Kunde inte läsa inställningar (${r.status})`); return; }
-    const data: HASettings = await r.json();
-    setS(data);
-    setForm(f => ({
-      ...f,
-      base_url: data.base_url || '',
-      entity_id: data.entity_id || '',
-      force_domain: data.force_domain,
-      force_service: data.force_service,
-      force_data_json: '',
-    }));
-  };
-
-  useEffect(() => { load(); }, []);
-
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
+  const loadSettings = async () => {
     try {
-      let parsed: any = undefined;
-      if (form.force_data_json.trim()) {
-        try { parsed = JSON.parse(form.force_data_json); }
-        catch { showNotice('err','force_data_json är inte giltig JSON'); return; }
-      }
-      const body: any = {
-        base_url: form.base_url || null,
-        entity_id: form.entity_id || null,
-        force_domain: form.force_domain || null,
-        force_service: form.force_service || null,
-        force_data_json: parsed ?? null,
-      };
-      if (form.token.trim()) body.token = form.token.trim();
-
-      const r = await fetch(`${API}/settings/ha`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) { showNotice('err', `Sparning misslyckades (${r.status})`); return; }
-      await load();
-      setForm(f => ({ ...f, token: '' }));
-      showNotice('ok','Inställningar sparade.');
+      setLoading(true);
+      const r = await fetch(`${API}/settings?_ts=${Date.now()}`, { cache: 'no-store' });
+      if (!r.ok) throw new Error(`GET /settings ${r.status}`);
+      const s = (await r.json()) as Settings;
+      setHaUrl((s.ha_base_url || '') as string);
+      setHaEntity((s.ha_odometer_entity || '') as string);
+      setHaTokenAlreadySet(!!s.ha_token_set); // om backend exponerar detta
+      setStatus('Inställningar laddade.');
+    } catch (e: any) {
+      setStatus(`Fel vid laddning: ${e?.message || e}`);
     } finally {
-      setSaving(false);
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadSettings(); }, []);
+
+  const saveSettings = async () => {
+    const payload: any = {
+      ha_base_url: haUrl || null,
+      ha_odometer_entity: haEntity || null,
+    };
+    // Skicka endast token om användaren angett något nytt
+    if (haTokenInput.trim().length > 0) {
+      payload.ha_token = haTokenInput.trim();
+    }
+
+    const r = await fetch(`${API}/settings`, {
+      method: 'PUT', // eller POST beroende på ditt API; byt om nödvändigt
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      alert(`Kunde inte spara inställningar: ${txt}`);
+      return;
+    }
+    setHaTokenInput('');
+    await loadSettings();
+  };
+
+  const testPoll = async () => {
+    try {
+      const r = await fetch(`${API}/integrations/home-assistant/poll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vehicle_reg: 'TEST' }),
+      });
+      const data = await r.json();
+      alert(r.ok ? `Poll OK: ${JSON.stringify(data)}` : `Poll FEL: ${JSON.stringify(data)}`);
+    } catch (e: any) {
+      alert(`Poll FEL: ${e?.message || e}`);
+    }
+  };
+
+  const testForce = async () => {
+    try {
+      const r = await fetch(`${API}/integrations/home-assistant/force-update-and-poll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vehicle_reg: 'TEST' }),
+      });
+      const data = await r.json();
+      alert(r.ok ? `Force OK: ${JSON.stringify(data)}` : `Force FEL: ${JSON.stringify(data)}`);
+    } catch (e: any) {
+      alert(`Force FEL: ${e?.message || e}`);
     }
   };
 
   return (
-    <div style={{ marginTop: 16 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700 }}>Home Assistant-inställningar</h2>
+    <div>
+      <h1>Inställningar</h1>
 
-      {notice && (
-        <div style={{
-          marginTop: 12, padding: '8px 12px',
-          background: notice.type === 'ok' ? '#e6f6ec' : '#fdecea',
-          color: notice.type === 'ok' ? '#067647' : '#b3261e',
-          border: `1px solid ${notice.type === 'ok' ? '#95d5b2' : '#f5c2c0'}`,
-          borderRadius: 8
-        }}>
-          {notice.text}
+      <div style={{ display:'grid', gap:8, maxWidth: 520 }}>
+        <label>
+          Home Assistant URL
+          <input
+            placeholder="t.ex. http://homeassistant.local:8123"
+            value={haUrl}
+            onChange={e=>setHaUrl(e.target.value)}
+          />
+        </label>
+
+        <label>
+          Odometer Entity-ID
+          <input
+            placeholder="t.ex. sensor.kia_niro_odometer"
+            value={haEntity}
+            onChange={e=>setHaEntity(e.target.value)}
+          />
+        </label>
+
+        <label>
+          HA Token (lagras säkert)
+          <input
+            type="password"
+            placeholder={haTokenAlreadySet ? '••••••••' : 'klistra in token'}
+            value={haTokenInput}
+            onChange={e=>setHaTokenInput(e.target.value)}
+          />
+          <div style={{ fontSize:12, color:'#666' }}>
+            {haTokenAlreadySet
+              ? 'En token finns redan lagrad. Lämna tomt för att behålla.'
+              : 'Ingen token lagrad ännu.'}
+          </div>
+        </label>
+
+        <div style={{ display:'flex', gap:8, marginTop:8 }}>
+          <button onClick={saveSettings} disabled={loading}>Spara</button>
+          <button onClick={loadSettings} disabled={loading}>Ladda om</button>
+          <button onClick={testPoll} type="button">Testa Poll</button>
+          <button onClick={testForce} type="button">Testa Force</button>
         </div>
-      )}
+      </div>
 
-      {s && (
-        <p style={{ color: '#555', marginTop: 8 }}>
-          Token: {s.has_token ? `sparad (••••${s.token_last4 || ''})` : 'ej sparad'}
-        </p>
-      )}
-
-      <form onSubmit={save} style={{ display: 'grid', gap: 10, marginTop: 12, maxWidth: 560 }}>
-        <label>
-          HA Base URL
-          <input placeholder="http://homeassistant.local:8123"
-                 value={form.base_url}
-                 onChange={e=>setForm({...form, base_url: e.target.value})} />
-        </label>
-        <label>
-          Odometer entity_id
-          <input placeholder="sensor.kia_uvo_odometer"
-                 value={form.entity_id}
-                 onChange={e=>setForm({...form, entity_id: e.target.value})} />
-        </label>
-        <label>
-          Long-Lived Token (lagras säkert – visas aldrig)
-          <input type="password"
-                 placeholder="Klistra in nytt om du vill byta"
-                 value={form.token}
-                 onChange={e=>setForm({...form, token: e.target.value})} />
-        </label>
-        <label>
-          Force Update – domain
-          <input value={form.force_domain}
-                 onChange={e=>setForm({...form, force_domain: e.target.value})} />
-        </label>
-        <label>
-          Force Update – service
-          <input value={form.force_service}
-                 onChange={e=>setForm({...form, force_service: e.target.value})} />
-        </label>
-        <label>
-          Force Update – data (JSON, valfritt)
-          <textarea placeholder='{"entity_id":"sensor.kia_uvo_odometer"}'
-                    value={form.force_data_json}
-                    onChange={e=>setForm({...form, force_data_json: e.target.value})} />
-        </label>
-
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button type="submit" disabled={saving}>{saving ? 'Sparar…' : 'Spara'}</button>
-        </div>
-      </form>
+      <div style={{ marginTop: 12, fontSize: 12, color: '#666' }}>
+        API: <code>{API}</code> — {status}
+      </div>
     </div>
   );
 }
