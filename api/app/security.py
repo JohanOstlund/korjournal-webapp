@@ -1,8 +1,15 @@
 import os, time, hmac, hashlib, base64, json
 from typing import Optional, Tuple
+import bcrypt
 
-SECRET = os.getenv("SECRET_KEY","changeme")
-EXP_MIN = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES","43200"))
+# Fail if SECRET_KEY not set in production
+SECRET = os.getenv("SECRET_KEY")
+if not SECRET:
+    if os.getenv("ENV", "development") == "production":
+        raise RuntimeError("SECRET_KEY must be set in production!")
+    SECRET = "dev-secret-change-me"
+
+EXP_MIN = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES","1440"))  # 24 hours default
 
 def _b64(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode().rstrip("=")
@@ -32,3 +39,15 @@ def verify_jwt(token: str) -> Tuple[bool, Optional[dict]]:
         return True, payload
     except Exception:
         return False, None
+
+# ===== Password Hashing with bcrypt =====
+def hash_password(password: str) -> str:
+    """Hash a password using bcrypt."""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(password: str, hashed: str) -> bool:
+    """Verify a password against a bcrypt hash."""
+    try:
+        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    except Exception:
+        return False
