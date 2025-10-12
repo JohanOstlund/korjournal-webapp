@@ -66,11 +66,15 @@ def ensure_admin(db: Session):
     u = db.query(User).filter(User.username == username).first()
     if not u:
         logger.info(f"Creating admin user: {username}")
-        u = User(username=username, password_hash=hash_password(password))
+        u = User(username=username, password_hash=hash_password(password), is_admin=True)
         db.add(u)
         db.commit()
         logger.info("Admin user created successfully")
     else:
+        if not u.is_admin:
+            logger.info(f"Upgrading user '{username}' to admin")
+            u.is_admin = True
+            db.commit()
         logger.info(f"Admin user '{username}' already exists")
 
 @asynccontextmanager
@@ -126,6 +130,12 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if not u:
         raise HTTPException(401, "User not found")
     return u
+
+def get_admin_user(user: User = Depends(get_current_user)) -> User:
+    """Dependency to verify admin privileges."""
+    if not user.is_admin:
+        raise HTTPException(403, "Admin privileges required")
+    return user
 
 def get_ha_config(db: Session, user: User):
     """Get per-user HA settings with ENV fallback."""
@@ -280,6 +290,17 @@ class SettingsIn(BaseModel):
     force_service: Optional[str] = None
     force_data_json: Optional[dict] = None
 
+class UserOut(BaseModel):
+    id: int
+    username: str
+
+    class Config:
+        from_attributes = True
+
+class CreateUserIn(BaseModel):
+    username: str
+    password: str
+
 # ===== Open Routes (No Auth) =====
 @app.post("/auth/login")
 @limiter.limit("5/minute")
@@ -333,6 +354,67 @@ def change_password(
     db.commit()
     logger.info(f"Password changed for user: {user.username}")
     return {"ok": True}
+
+# ===== Admin User Management =====
+@app.post("/admin/users", response_model=UserOut)
+def create_user(
+    payload: CreateUserIn,
+    admin: User = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Admin endpoint to create a new user."""
+    if not payload.username or not payload.password:
+        raise HTTPException(400, "Användarnamn och lösenord krävs")
+
+    if len(payload.password) < 8:
+        raise HTTPException(400, "Lösenord måste vara minst 8 tecken")
+
+    existing = db.query(User).filter(User.username == payload.username).first()
+    if existing:
+        raise HTTPException(400, "Användaren finns redan")
+
+    new_user = User(
+        username=payload.username,
+        password_hash=hash_password(payload.password),
+        is_admin=False
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    logger.info(f"Admin {admin.username} created new user: {new_user.username}")
+    return UserOut(id=new_user.id, username=new_user.username)
+
+@app.get("/admin/users", response_model=List[UserOut])
+def list_users(
+    admin: User = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Admin endpoint to list all users."""
+    users = db.query(User).order_by(User.username).all()
+    return [UserOut(id=u.id, username=u.username) for u in users]
+
+@app.delete("/admin/users/{user_id}")
+def delete_user(
+    user_id: int,
+    admin: User = Depends(get_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Admin endpoint to delete a user."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "Användare hittades inte")
+
+    if user.is_admin:
+        raise HTTPException(400, "Kan inte ta bort admin-användare")
+
+    if user.id == admin.id:
+        raise HTTPException(400, "Kan inte ta bort sig själv")
+
+    db.delete(user)
+    db.commit()
+    logger.info(f"Admin {admin.username} deleted user: {user.username}")
+    return {"status": "deleted"}
 
 @app.get("/health")
 def health(db: Session = Depends(get_db)):

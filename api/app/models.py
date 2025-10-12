@@ -12,6 +12,7 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     username = Column(String(190), unique=True, nullable=False)
     password_hash = Column(String(190), nullable=False)
+    is_admin = Column(Boolean, nullable=False, default=False)
 
     # backrefs:
     # trips, templates, ha_settings
