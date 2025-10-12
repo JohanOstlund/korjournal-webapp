@@ -18,12 +18,12 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
       HA_VERIFY_SSL: ${HA_VERIFY_SSL:-true}
-      HA_BASE_URL: ${HA_BASE_URL:?set HA_BASE_URL}
-      HA_TOKEN: ${HA_TOKEN:?set HA_TOKEN}
-      HA_ODOMETER_ENTITY: ${HA_ODOMETER_ENTITY:?set HA_ODOMETER_ENTITY}
+      # Optional: Global fallback HA settings (users configure their own in Settings)
+      HA_BASE_URL: ${HA_BASE_URL:-}
+      HA_TOKEN: ${HA_TOKEN:-}
+      HA_ODOMETER_ENTITY: ${HA_ODOMETER_ENTITY:-}
       HA_FORCE_DOMAIN: ${HA_FORCE_DOMAIN:-kia_uvo}
       HA_FORCE_SERVICE: ${HA_FORCE_SERVICE:-force_update}
-      HA_FORCE_DATA: "${HA_FORCE_DATA:-{\"entity_id\":\"sensor.kia_uvo_odometer\"}}"
     ports:
       - "${API_PORT:-8080}:8080"
     healthcheck:
