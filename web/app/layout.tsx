@@ -18,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Link href="/" style={linkStyle('/')}>Resor</Link>
           <Link href="/templates" style={linkStyle('/templates')}>Mallar</Link>
           <Link href="/settings" style={linkStyle('/settings')}>Inställningar</Link>
+          <Link href="/admin" style={linkStyle('/admin')}>Admin</Link>
         </nav>
         <main style={{ padding:16 }}>{children}</main>
       </body>

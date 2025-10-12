@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const fetchAuth = (url: string, options: RequestInit = {}) =>
+  fetch(url, { credentials: 'include', ...options });
 
 type Template = {
   id: number;
@@ -43,7 +45,7 @@ export default function TemplatesPage() {
   const loadTemplates = async () => {
     try {
       setLoading(true);
-      const r = await fetch(`${API}/templates?_ts=${Date.now()}`, { cache: 'no-store' });
+      const r = await fetchAuth(`${API}/templates?_ts=${Date.now()}`, { cache: 'no-store' });
       if (!r.ok) throw new Error(`GET /templates ${r.status}`);
       const data = (await r.json()) as Template[];
       setTemplates(data);
@@ -82,7 +84,7 @@ export default function TemplatesPage() {
     };
     const url = editId ? `${API}/templates/${editId}` : `${API}/templates`;
     const method = editId ? 'PUT' : 'POST';
-    const r = await fetch(url, {
+    const r = await fetchAuth(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -98,13 +100,12 @@ export default function TemplatesPage() {
 
   const deleteTemplate = async (id: number) => {
     if (!confirm('Ta bort mallen?')) return;
-    const r = await fetch(`${API}/templates/${id}`, { method: 'DELETE' });
+    const r = await fetchAuth(`${API}/templates/${id}`, { method: 'DELETE' });
     if (!r.ok) {
       const txt = await r.text();
       alert(`Kunde inte ta bort: ${txt}`);
       return;
     }
-    // om vi raderade den som var i formuläret, nollställ
     if (editId === id) resetForm();
     await loadTemplates();
   };

@@ -1,4 +1,4 @@
-version: "3.9"
+version: "3.3"
 
 services:
   api:
@@ -8,22 +8,22 @@ services:
     container_name: korjournal-api
     restart: unless-stopped
     environment:
-      # --- Databas (extern MariaDB på NAS) ---
       DATABASE_URL: "mysql+pymysql://${NAS_DB_USER:?set NAS_DB_USER}:${NAS_DB_PASS:?set NAS_DB_PASS}@${NAS_DB_HOST:?set NAS_DB_HOST}:${NAS_DB_PORT:-3306}/${NAS_DB_NAME:?set NAS_DB_NAME}?charset=utf8mb4"
-
-      # --- CORS: tillåt web-UI från din server + localhost ---
       CORS_ORIGINS: "http://${SERVER_HOST:?set SERVER_HOST}:${WEB_PORT:-3001},http://localhost:${WEB_PORT:-3001}"
-
-      # --- Home Assistant (obligatoriskt) ---
-      HA_BASE_URL: ${HA_BASE_URL:?set HA_BASE_URL}
-      HA_TOKEN: ${HA_TOKEN:?set HA_TOKEN}
-      HA_ODOMETER_ENTITY: ${HA_ODOMETER_ENTITY:?set HA_ODOMETER_ENTITY}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      ENV: ${ENV:-development}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?set ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      HA_VERIFY_SSL: ${HA_VERIFY_SSL:-true}
+      # Optional: Global fallback HA settings (users configure their own in Settings)
+      HA_BASE_URL: ${HA_BASE_URL:-}
+      HA_TOKEN: ${HA_TOKEN:-}
+      HA_ODOMETER_ENTITY: ${HA_ODOMETER_ENTITY:-}
       HA_FORCE_DOMAIN: ${HA_FORCE_DOMAIN:-kia_uvo}
       HA_FORCE_SERVICE: ${HA_FORCE_SERVICE:-force_update}
-      HA_FORCE_DATA: "${HA_FORCE_DATA:-{\"entity_id\":\"sensor.kia_uvo_odometer\"}}"
-
-      # --- (valfritt) OSRM ---
-      # OSRM_URL: ${OSRM_URL}
     ports:
       - "${API_PORT:-8080}:8080"
     healthcheck:
