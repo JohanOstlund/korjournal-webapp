@@ -3,13 +3,14 @@ import logging
 import os
 from fastapi import APIRouter, Depends, Response, HTTPException, Request
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from ..db import get_db
 from ..models import User
-from ..security import sign_jwt, verify_jwt, hash_password, verify_password
+from ..schemas import LoginIn, ChangePasswordIn
+from ..dependencies import get_current_user
+from ..security import sign_jwt, verify_password, hash_password
 
 logger = logging.getLogger(__name__)
 
@@ -20,29 +21,7 @@ COOKIE_NAME = "session"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "lax")
 
-router = APIRouter(prefix="/auth", tags=["Authentication"])
-
-class LoginIn(BaseModel):
-    username: str
-    password: str
-
-class ChangePasswordIn(BaseModel):
-    current_password: str
-    new_password: str
-
-def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
-    """Dependency to get current authenticated user."""
-    token = request.cookies.get(COOKIE_NAME)
-    if not token:
-        raise HTTPException(401, "Not authenticated")
-    ok, payload = verify_jwt(token)
-    if not ok:
-        raise HTTPException(401, "Invalid session")
-    username = payload.get("sub")
-    u = db.query(User).filter(User.username == username).first()
-    if not u:
-        raise HTTPException(401, "User not found")
-    return u
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/login")
 @limiter.limit("5/minute")  # Rate limit: 5 attempts per minute
