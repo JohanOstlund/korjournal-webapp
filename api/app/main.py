@@ -430,7 +430,7 @@ class LoginOut(BaseModel):
 
 @app.post("/auth/token", response_model=LoginOut)
 @limiter.limit("5/minute")
-async def login_token(payload: LoginIn, db: Session = Depends(get_db)):
+async def login_token(request: Request, payload: LoginIn, db: Session = Depends(get_db)):
     u = db.query(User).filter(User.username == payload.username).first()
     if not u or not verify_password(payload.password, u.password_hash):
         raise HTTPException(401, "Fel användarnamn eller lösenord")
