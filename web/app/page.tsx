@@ -2,8 +2,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
-const fetchAuth = (url: string, options: RequestInit = {}) =>
-  fetch(url, { credentials: 'include', ...options });
 
 type Trip = {
   id: number;
@@ -70,6 +68,14 @@ export default function Home() {
   const [vehicle, setVehicle] = useState(''); // filter: visa bara detta regnr
   const [status, setStatus] = useState<string>('');
 
+  // --- NYTT: Årsval för exporter ---
+  const [year, setYear] = useState<number>(new Date().getFullYear());
+  const years = useMemo(() => {
+    const y = new Date().getFullYear();
+    // Anpassa gärna spannet – detta visar (y-2 .. y+2)
+    return [y - 2, y - 1, y, y + 1, y + 2];
+  }, []);
+
   // Formfält för ny/pågående resa
   const [purpose, setPurpose] = useState<string>('Kundbesök');
   const [business, setBusiness] = useState<boolean>(true);
@@ -112,7 +118,7 @@ export default function Home() {
         ? `${API}/trips?vehicle=${encodeURIComponent(vehicle.trim())}`
         : `${API}/trips`;
       const url = `${urlBase}${urlBase.includes('?') ? '&' : '?'}include_active=true&_ts=${Date.now()}`;
-      const r = await fetchAuth(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
+      const r = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
       if (!r.ok) throw new Error(`GET /trips ${r.status}`);
       const data = (await r.json()) as Trip[];
       setTrips(data);
@@ -130,7 +136,7 @@ export default function Home() {
   useEffect(() => {
     const loadTemplates = async () => {
       try {
-        const r = await fetchAuth(`${API}/templates?_ts=${Date.now()}`, { cache: 'no-store' });
+        const r = await fetch(`${API}/templates?_ts=${Date.now()}`, { cache: 'no-store' });
         if (r.ok) setTemplates(await r.json());
       } catch (e) {
         console.error('Kunde inte ladda mallar', e);
@@ -151,7 +157,7 @@ export default function Home() {
   // HA: endast läsa sensor (utan force), returnerar km eller null
   const haPollOdometerNoForce = async (): Promise<number | null> => {
     try {
-      const res = await fetchAuth(`${API}/integrations/home-assistant/poll`, {
+      const res = await fetch(`${API}/integrations/home-assistant/poll`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ vehicle_reg: (vehicle || 'UNKNOWN').trim() }),
@@ -167,7 +173,7 @@ export default function Home() {
   // HA: Force update + poll (med force)
   const haForceUpdateAndPoll = async (): Promise<number | null> => {
     try {
-      const res = await fetchAuth(`${API}/integrations/home-assistant/force-update-and-poll`, {
+      const res = await fetch(`${API}/integrations/home-assistant/force-update-and-poll`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ vehicle_reg: (vehicle || 'UNKNOWN').trim() }),
@@ -211,7 +217,7 @@ export default function Home() {
         start_address: startAddress || undefined,
         end_address: endAddress || undefined, // spara slutadress vid START
       };
-      const r = await fetchAuth(`${API}/trips/start`, {
+      const r = await fetch(`${API}/trips/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -254,7 +260,7 @@ export default function Home() {
       const body: any = { trip_id: activeTrip.id };
       if (endVal != null) body.end_odometer_km = endVal;
 
-      const r = await fetchAuth(`${API}/trips/finish`, {
+      const r = await fetch(`${API}/trips/finish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -351,7 +357,7 @@ export default function Home() {
         end_address: editEndAddr || null,
         distance_km: null, // låt backend räkna från odo om möjligt
       };
-      const r = await fetchAuth(`${API}/trips/${editId}`, {
+      const r = await fetch(`${API}/trips/${editId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -373,7 +379,7 @@ export default function Home() {
     if (!confirm('Ta bort den här resan?')) return;
     try {
       setEditDeleting(true);
-      const r = await fetchAuth(`${API}/trips/${editId}`, { method: 'DELETE' });
+      const r = await fetch(`${API}/trips/${editId}`, { method: 'DELETE' });
       if (!r.ok) {
         const txt = await r.text();
         alert(`Kunde inte ta bort resan: ${txt}`);
@@ -385,6 +391,10 @@ export default function Home() {
       setEditDeleting(false);
     }
   };
+
+  // Hjälpare för exportlänkar med vehicle + year
+  const csvUrl = `${API}/exports/journal.csv?year=${year}${vehicle ? `&vehicle=${encodeURIComponent(vehicle)}` : ''}`;
+  const pdfUrl = `${API}/exports/journal.pdf?year=${year}${vehicle ? `&vehicle=${encodeURIComponent(vehicle)}` : ''}`;
 
   return (
     <div>
@@ -399,9 +409,17 @@ export default function Home() {
             style={{ marginLeft: 8 }}
           />
         </label>
-        {/* OBS: window.open skickar cookies automatiskt till samma domän/subdomän */}
-        <button onClick={()=> window.open(`${API}/exports/journal.csv${vehicle ? `?vehicle=${vehicle}` : ''}`, '_blank')}>Exportera CSV</button>
-        <button onClick={()=> window.open(`${API}/exports/journal.pdf${vehicle ? `?vehicle=${vehicle}` : ''}`, '_blank')}>Exportera PDF</button>
+
+        {/* NYTT: Årsväljare */}
+        <label style={{ marginLeft: 8 }}>
+          År
+          <select value={year} onChange={e => setYear(Number(e.target.value))} style={{ marginLeft: 8 }}>
+            {years.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </label>
+
+        <button onClick={()=> window.open(csvUrl, '_blank')}>Exportera CSV</button>
+        <button onClick={()=> window.open(pdfUrl, '_blank')}>Exportera PDF</button>
       </div>
 
       {/* Mallval + basfält för ny/pågående resa */}
