@@ -278,20 +278,6 @@ def revoke_token(token_id: int, user: User = Depends(get_current_user), db: Sess
     db.commit()
     return {"status": "revoked"}
 
-# valfritt
-class LoginOut(BaseModel):
-    ok: bool
-    user: dict
-    access_token: str  # JWT
-
-@app.post("/auth/token", response_model=LoginOut)
-@limiter.limit("5/minute")
-async def login_token(payload: LoginIn, db: Session = Depends(get_db)):
-    u = db.query(User).filter(User.username == payload.username).first()
-    if not u or not verify_password(payload.password, u.password_hash):
-        raise HTTPException(401, "Fel användarnamn eller lösenord")
-    token = sign_jwt({"sub": u.username})
-    return {"ok": True, "user": {"username": u.username}, "access_token": token}
 
 
 # ===== Pydantic Models =====
@@ -433,7 +419,20 @@ async def login(request: Request, payload: LoginIn, response: Response, db: Sess
     )
     logger.info(f"Successful login for user: {payload.username}")
     return {"ok": True, "user": {"username": u.username}}
+# valfritt
+class LoginOut(BaseModel):
+    ok: bool
+    user: dict
+    access_token: str  # JWT
 
+@app.post("/auth/token", response_model=LoginOut)
+@limiter.limit("5/minute")
+async def login_token(payload: LoginIn, db: Session = Depends(get_db)):
+    u = db.query(User).filter(User.username == payload.username).first()
+    if not u or not verify_password(payload.password, u.password_hash):
+        raise HTTPException(401, "Fel användarnamn eller lösenord")
+    token = sign_jwt({"sub": u.username})
+    return {"ok": True, "user": {"username": u.username}, "access_token": token}
 @app.post("/auth/logout")
 def logout(response: Response):
     """Logout endpoint."""
