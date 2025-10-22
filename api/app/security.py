@@ -1,4 +1,5 @@
-import os, time, hmac, hashlib, base64, json
+import os, time, hmac, hashlib, base64, json, bcrypt
+from datetime import datetime
 from typing import Optional, Tuple
 import bcrypt
 
@@ -39,6 +40,22 @@ def verify_jwt(token: str) -> Tuple[bool, Optional[dict]]:
         return True, payload
     except Exception:
         return False, None
+
+def hash_token(plain: str) -> str:
+    return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+def verify_token(plain: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    except Exception:
+        return False
+
+def gen_plain_api_token(prefix: str = "kj_") -> str:
+    import secrets
+    return f"{prefix}{secrets.token_urlsafe(32)}"
+
+def is_expired(ts) -> bool:
+    return bool(ts) and datetime.utcnow() > ts
 
 # ===== Password Hashing with bcrypt =====
 def hash_password(password: str) -> str:
