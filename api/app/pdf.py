@@ -1,10 +1,13 @@
 from io import BytesIO
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+)
+from datetime import datetime
 
 def _format_bool_tjanst(val: Any) -> str:
     if val is True:
@@ -20,33 +23,22 @@ def _page_fn(canvas, doc):
     canvas.drawRightString(w - 15*mm, 10*mm, f"Sida {doc.page}")
     canvas.restoreState()
 
-def _ym(datum: str) -> str:
-    return (datum or "")[:7]  # 'YYYY-MM-DD' -> 'YYYY-MM'
-
-def _collect_month_totals(rows: List[Dict[str, Any]]) -> Tuple[Dict[str, float], float]:
-    per_month = {}
-    total = 0.0
-    for r in rows:
-        km = r.get("km")
-        try:
-            v = float(km) if km not in (None, "") else 0.0
-        except Exception:
-            v = 0.0
-        m = _ym(r.get("datum", ""))
-        if m:
-            per_month[m] = per_month.get(m, 0.0) + v
-        total += v
-    return per_month, total
+def _ym(datestr: str) -> str:
+    # 'YYYY-MM' från 'YYYY-MM-DD'
+    try:
+        return datestr[:7]
+    except Exception:
+        return ""
 
 def render_journal_pdf(rows: List[Dict[str, Any]]) -> bytes:
     """
     rows: list av dicts:
       - datum (YYYY-MM-DD)
-      - regnr/vehicle_reg (valfritt)
-      - driver/driver_name (valfritt)
-      - start_odo, end_odo, km
-      - syfte, tjanst (bool)
-      - start_adress, slut_adress (valfritt)
+      - start_odo, end_odo, km (float|str|None)
+      - syfte (str|None)
+      - tjanst (bool)
+      - start_adress, slut_adress (str|None)
+      - (valfritt) regnr (str), driver (str)
     """
     buf = BytesIO()
 
@@ -65,99 +57,36 @@ def render_journal_pdf(rows: List[Dict[str, Any]]) -> bytes:
     styles.add(ParagraphStyle(name="TitleSE", fontName="Helvetica-Bold", fontSize=16, leading=20, spaceAfter=6))
     styles.add(ParagraphStyle(name="SubtitleSE", fontName="Helvetica", fontSize=9, leading=12, textColor=colors.grey))
     styles.add(ParagraphStyle(name="Cell", fontName="Helvetica", fontSize=9, leading=12))
-    styles.add(ParagraphStyle(name="CellSmallGrey", fontName="Helvetica", fontSize=8, leading=10, textColor=colors.grey))
-    styles.add(ParagraphStyle(name="Head", fontName="Helvetica-Bold", fontSize=9, leading=11, alignment=1))   # center
-    styles.add(ParagraphStyle(name="SumRow", fontName="Helvetica-Bold", fontSize=10, leading=13, alignment=1)) # center
+    styles.add(ParagraphStyle(name="CellSmallGray", fontName="Helvetica", fontSize=8, leading=10, textColor=colors.grey))
+    styles.add(ParagraphStyle(name="SumCell", fontName="Helvetica-Bold", fontSize=10, leading=12, alignment=1))  # center
+    styles.add(ParagraphStyle(name="SumCellLeft", fontName="Helvetica-Bold", fontSize=10, leading=12, alignment=0))  # left
 
     story = []
 
     # Titel + period
     story.append(Paragraph("Körjournal", styles["TitleSE"]))
+    first_date = rows[0]["datum"] if rows else ""
+    last_date  = rows[-1]["datum"] if rows else ""
     if rows:
-        first = rows[0].get("datum", "")
-        last = rows[-1].get("datum", "")
-        story.append(Paragraph(f"Period: {first} – {last}", styles["SubtitleSE"]))
+        story.append(Paragraph(f"Period: {first_date} – {last_date}", styles["SubtitleSE"]))
     story.append(Spacer(1, 4*mm))
 
-    # Header (två rader via \n)
+    # --- Tabellhuvud ---
     headers = [
-        "Datum",
-        "Regnr",
-        "Förare",
-        "Mätarställning\nstart",
-        "Mätarställning\nslut",
-        "Antal\nkm",
-        "Syfte",
-        "Typ",
+        Paragraph("Datum", styles["Cell"]),
+        Paragraph("Regnr", styles["Cell"]),
+        Paragraph("Förare", styles["Cell"]),
+        Paragraph("Mätarställning<br/>start", styles["Cell"]),
+        Paragraph("Mätarställning<br/>slut", styles["Cell"]),
+        Paragraph("Antal<br/>km", styles["Cell"]),
+        Paragraph("Syfte", styles["Cell"]),
+        Paragraph("Typ", styles["Cell"]),
     ]
-    data: List[List[Any]] = [[Paragraph(h, styles["Head"]) for h in headers]]
 
-    # Kolumnbredder (≈180 mm). Syfte ~1/3 smalare.
-    col_widths_mm = [18, 18, 24, 24, 24, 16, 36, 12]
-    col_widths = [w * mm for w in col_widths_mm]
-
-    per_month, total_sum = _collect_month_totals(rows)
-
-    # Hjälpare för helbredds-summeringsrader (en cell som spänner hela tabellen)
-    def _append_sum_row(text: str):
-        # skapa rad med första cellen = text, resten placeholders
-        row = [Paragraph(text, styles["SumRow"])] + [""] * (len(headers) - 1)
-        data.append(row)
-        r_idx = len(data) - 1
-        sum_rows.append(r_idx)
-
-    sum_rows: List[int] = []
-
-    # Resrader – adresser bäddas in i syfte-cellen så hela resan håller ihop på en sida
-    for i, r in enumerate(rows):
-        datum = r.get("datum", "")
-        regnr = r.get("regnr") or r.get("vehicle_reg") or ""
-        driver = r.get("driver") or r.get("driver_name") or ""
-        start_odo = "" if r.get("start_odo") is None else str(r.get("start_odo"))
-        end_odo   = "" if r.get("end_odo") is None else str(r.get("end_odo"))
-        km        = "" if r.get("km") is None else str(r.get("km"))
-        syfte     = r.get("syfte", "") or ""
-        typ       = _format_bool_tjanst(r.get("tjanst"))
-
-        sa = (r.get("start_adress") or "").strip()
-        ea = (r.get("slut_adress") or "").strip()
-        addr_html = ""
-        if sa or ea:
-            parts = []
-            if sa: parts.append(f"<font color='#666666' size='8'>Start: {sa}</font>")
-            if ea: parts.append(f"<font color='#666666' size='8'>Slut: {ea}</font>")
-            addr_html = "<br/>" + "<br/>".join(parts)
-
-        syfte_html = f"{syfte}{addr_html}"
-
-        data.append([
-            Paragraph(str(datum), styles["Cell"]),
-            Paragraph(str(regnr), styles["Cell"]),
-            Paragraph(str(driver), styles["Cell"]),
-            Paragraph(start_odo, styles["Cell"]),
-            Paragraph(end_odo, styles["Cell"]),
-            Paragraph(km, styles["Cell"]),
-            Paragraph(syfte_html, styles["Cell"]),
-            Paragraph(typ, styles["Cell"]),
-        ])
-
-        # Månadsgräns? Lägg helbredds-summarad
-        cur_m = _ym(datum)
-        next_m = _ym(rows[i+1].get("datum","")) if i+1 < len(rows) else None
-        if next_m != cur_m:
-            _append_sum_row(f"Summa {cur_m}  <b>{round(per_month.get(cur_m, 0.0), 1)}</b> km")
-
-    # Totalsumma (helbredds-rad)
-    if rows:
-        _append_sum_row(f"Totalt  <b>{round(total_sum, 1)}</b> km")
-
-    # Bygg tabell
-    tbl = Table(data, colWidths=col_widths, repeatRows=1)
-
-    # Basstil
-    ts = [
+    data = [headers]
+    table_style_cmds = [
         ("FONT", (0,0), (-1,0), "Helvetica-Bold", 9),
-        ("ALIGN", (0,0), (-1,0), "CENTER"),
+        ("ALIGN", (0,0), (-1,0), "LEFT"),
         ("TEXTCOLOR", (0,0), (-1,0), colors.black),
         ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#EEEEEE")),
         ("LINEBELOW", (0,0), (-1,0), 0.75, colors.HexColor("#CCCCCC")),
@@ -170,19 +99,110 @@ def render_journal_pdf(rows: List[Dict[str, Any]]) -> bytes:
         ("BOTTOMPADDING", (0,0), (-1,-1), 3),
     ]
 
-    # Styla helbredds-summor: SPAN över hela bredden, centrerad, grå bakgrund, ram och extra padding
-    for r in sum_rows:
-        ts += [
-            ("SPAN", (0, r), (-1, r)),
-            ("BACKGROUND", (0, r), (-1, r), colors.HexColor("#F5F5F5")),
-            ("BOX", (0, r), (-1, r), 0.75, colors.HexColor("#BDBDBD")),
-            ("ALIGN", (0, r), (-1, r), "CENTER"),
-            ("TOPPADDING", (0, r), (-1, r), 6),
-            ("BOTTOMPADDING", (0, r), (-1, r), 6),
-        ]
+    # Kolumnbredder (mm) – total ~180mm
+    # Datum 22, Regnr 16, Förare 24, Start 24, Slut 24, Km 16, Syfte 38 (≈ -1/3), Typ 16
+    col_widths_mm = [22, 16, 24, 24, 24, 16, 38, 16]
+    col_widths = [w * mm for w in col_widths_mm]
 
-    tbl.setStyle(TableStyle(ts))
+    # --- Rader + månadsgruppering ---
+    total_km = 0.0
+    month_km = 0.0
+    prev_month = _ym(first_date) if rows else ""
+
+    def add_month_sum(month_key: str):
+        # Lägg in en helradig boxrad med månadsumma (inte knuten till Km-kolumn)
+        nonlocal data, table_style_cmds, month_km
+        if month_key and month_km is not None:
+            row_idx = len(data)
+            text = f"Summa {month_key} {round(month_km,1)} km"
+            # en rad med 8 tomma celler
+            data.append([""] * 8)
+            # SPAN över hela raden och style som box
+            table_style_cmds += [
+                ("SPAN", (0, row_idx), (-1, row_idx)),
+                ("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#F3F3F3")),
+                ("BOX", (0, row_idx), (-1, row_idx), 0.75, colors.HexColor("#BDBDBD")),
+                ("ALIGN", (0, row_idx), (-1, row_idx), "CENTER"),
+            ]
+            data[row_idx][0] = Paragraph(text, styles["SumCell"])
+
+    for r in rows:
+        datum = r.get("datum", "") or ""
+        month_key = _ym(datum)
+        # byt månad? – lägg in föregående månads summa-rad
+        if prev_month and month_key != prev_month:
+            add_month_sum(prev_month)
+            month_km = 0.0
+
+        regnr = r.get("regnr", "") or ""
+        driver = r.get("driver", "") or ""
+        start_odo = r.get("start_odo", "")
+        end_odo = r.get("end_odo", "")
+        km_val = r.get("km", "")
+        try:
+            km_num = float(km_val) if km_val not in (None, "") else 0.0
+        except Exception:
+            km_num = 0.0
+        total_km += km_num
+        month_km += km_num
+
+        syfte = r.get("syfte", "") or ""
+        sa = r.get("start_adress") or ""
+        ea = r.get("slut_adress") or ""
+        # Syfte + (ev) adresser i samma cell i liten grå text → håller raden ihop
+        syfte_lines = [syfte] if syfte else []
+        small_lines = []
+        if sa:
+            small_lines.append(f"Start: {sa}")
+        if ea:
+            small_lines.append(f"Slut: {ea}")
+        if small_lines:
+            # append som <br/> + mindre grå
+            syfte_html = (syfte + "<br/>" if syfte else "") + \
+                         f'<font size="8" color="#888888">' + "<br/>".join(small_lines) + "</font>"
+        else:
+            syfte_html = syfte or ""
+
+        row = [
+            Paragraph(str(datum), styles["Cell"]),
+            Paragraph(str(regnr), styles["Cell"]),
+            Paragraph(str(driver), styles["Cell"]),
+            Paragraph("" if start_odo is None else str(start_odo), styles["Cell"]),
+            Paragraph("" if end_odo is None else str(end_odo), styles["Cell"]),
+            Paragraph("" if km_val is None else str(km_val), styles["Cell"]),
+            Paragraph(syfte_html, styles["Cell"]),
+            Paragraph(_format_bool_tjanst(r.get("tjanst")), styles["Cell"]),
+        ]
+        data.append(row)
+        prev_month = month_key
+
+    # sista månadens summa
+    if rows:
+        add_month_sum(prev_month)
+
+    # --- Tabell ---
+    tbl = Table(data, colWidths=col_widths, repeatRows=1)
+    tbl.setStyle(TableStyle(table_style_cmds))
+
     story.append(tbl)
+    story.append(Spacer(1, 6*mm))
+
+    # --- Totalsumma i egen box, inte bunden till tabellens kolumner ---
+    if rows:
+        total_text = f'Perioden {first_date} – {last_date} — Totalt {round(total_km,1)} km'
+        total_tbl = Table(
+            [[Paragraph(total_text, styles["SumCellLeft"])]],
+            colWidths=[sum(col_widths)]
+        )
+        total_tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#EDEDED")),
+            ("BOX", (0,0), (-1,-1), 1.0, colors.HexColor("#9E9E9E")),
+            ("LEFTPADDING", (0,0), (-1,-1), 6),
+            ("RIGHTPADDING", (0,0), (-1,-1), 6),
+            ("TOPPADDING", (0,0), (-1,-1), 6),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+        ]))
+        story.append(total_tbl)
 
     doc.build(story, onFirstPage=_page_fn, onLaterPages=_page_fn)
     pdf = buf.getvalue()
