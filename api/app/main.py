@@ -24,13 +24,15 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from .db import SessionLocal, engine, get_db
 from .models import (
     Base, Trip, Vehicle, Place, OdometerSnapshot, TripTemplate, Setting,
-    User, HASetting
+    User, HASetting, APIToken
 )
 from .pdf import render_journal_pdf
 from .security import sign_jwt, verify_jwt, hash_password, verify_password
+from .security import verify_token as verify_pat, hash_token as hash_pat, gen_plain_api_token, is_expired
 
 # ===== Logging Setup =====
 logging.basicConfig(
@@ -117,12 +119,49 @@ app.add_middleware(
 )
 
 # ===== Helper Functions =====
-def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
-    """Dependency to get current authenticated user."""
-    token = request.cookies.get(COOKIE_NAME)
-    if not token:
+bearer_scheme = HTTPBearer(auto_error=False)
+
+def get_current_user(
+    request: Request,
+    db: Session = Depends(get_db),
+    creds: HTTPAuthorizationCredentials = Depends(bearer_scheme)
+) -> User:
+    """
+    Ordning:
+    1) Authorization: Bearer <token> där <token> först testas som JWT; om ogiltig testas som PAT
+    2) Cookie-baserad JWT (fallback)
+    """
+    # 1) Authorization header
+    if creds and creds.scheme.lower() == "bearer":
+        token = creds.credentials
+        ok, payload = verify_jwt(token)
+        if ok:
+            username = payload.get("sub")
+            u = db.query(User).filter(User.username == username).first()
+            if not u:
+                raise HTTPException(401, "User not found")
+            return u
+        # prova som PAT
+        # Vi lagrar endast hash i DB -> vi måste iterera eller hitta via indexerat prefix.
+        # För att undvika fullskan: lagra t.ex. de första 10 tecknen som 'lookup_key' om du vill.
+        # En enkel approach: hämta alla aktiva tokens för snabb POC (ok för få användare).
+        pats = db.query(APIToken).filter(APIToken.revoked == False).all()
+        for pat in pats:
+            if verify_pat(token, pat.token_hash):
+                if is_expired(pat.expires_at):
+                    raise HTTPException(401, "API token expired")
+                u = db.query(User).filter(User.id == pat.user_id).first()
+                if not u:
+                    raise HTTPException(401, "User not found")
+                # scopes kan du validera här om du vill
+                return u
+        raise HTTPException(401, "Invalid Authorization token")
+
+    # 2) Cookie
+    cookie_token = request.cookies.get(COOKIE_NAME)
+    if not cookie_token:
         raise HTTPException(401, "Not authenticated")
-    ok, payload = verify_jwt(token)
+    ok, payload = verify_jwt(cookie_token)
     if not ok:
         raise HTTPException(401, "Invalid session")
     username = payload.get("sub")
@@ -130,6 +169,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     if not u:
         raise HTTPException(401, "User not found")
     return u
+
 
 def get_admin_user(user: User = Depends(get_current_user)) -> User:
     """Dependency to verify admin privileges."""
@@ -184,6 +224,64 @@ def odo_delta_distance(start_odo: Optional[float], end_odo: Optional[float]) -> 
     if d < 0:
         return None
     return round(d, 1)
+    # ===== Protected Router =====
+protected = APIRouter(dependencies=[Depends(get_current_user)])
+# ===== Bearer Token =======
+
+class CreateTokenIn(BaseModel):
+    name: str
+    scope: Optional[str] = "full"
+    expires_days: Optional[int] = None  # None = aldrig (rekommenderas ej)
+
+class TokenOut(BaseModel):
+    id: int
+    name: str
+    scope: str
+    created_at: datetime
+    expires_at: Optional[datetime]
+    revoked: bool
+
+    class Config:
+        from_attributes = True
+
+
+@protected.post("/auth/tokens", response_model=TokenOut)
+def create_token(payload: CreateTokenIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from datetime import timedelta, datetime
+    plain = gen_plain_api_token()
+    hashed = hash_pat(plain)
+    expires_at = datetime.utcnow() + timedelta(days=payload.expires_days) if payload.expires_days else None
+    t = APIToken(
+        user_id=user.id,
+        name=payload.name,
+        token_hash=hashed,
+        scope=payload.scope or "full",
+        expires_at=expires_at,
+    )
+    db.add(t)
+    db.commit()
+    db.refresh(t)
+    # Viktigt: returnera plaintext-token bara en gång (i header) så den inte skrivs i loggar
+    return JSONResponse(
+        content=TokenOut.model_validate(t).model_dump(),
+        headers={"X-Plain-API-Token": plain}
+    )
+
+@protected.get("/auth/tokens", response_model=List[TokenOut])
+def list_tokens(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    tokens = db.query(APIToken).filter(APIToken.user_id == user.id).order_by(APIToken.created_at.desc()).all()
+    return [TokenOut.model_validate(t) for t in tokens]
+
+@protected.delete("/auth/tokens/{token_id}")
+def revoke_token(token_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    t = db.query(APIToken).filter(APIToken.id == token_id, APIToken.user_id == user.id).first()
+    if not t:
+        raise HTTPException(404, "Token not found")
+    t.revoked = True
+    db.commit()
+    return {"status": "revoked"}
+
+
 
 # ===== Pydantic Models =====
 class LoginIn(BaseModel):
@@ -324,7 +422,20 @@ async def login(request: Request, payload: LoginIn, response: Response, db: Sess
     )
     logger.info(f"Successful login for user: {payload.username}")
     return {"ok": True, "user": {"username": u.username}}
+# valfritt
+class LoginOut(BaseModel):
+    ok: bool
+    user: dict
+    access_token: str  # JWT
 
+@app.post("/auth/token", response_model=LoginOut)
+@limiter.limit("5/minute")
+async def login_token(request: Request, payload: LoginIn, db: Session = Depends(get_db)):
+    u = db.query(User).filter(User.username == payload.username).first()
+    if not u or not verify_password(payload.password, u.password_hash):
+        raise HTTPException(401, "Fel användarnamn eller lösenord")
+    token = sign_jwt({"sub": u.username})
+    return {"ok": True, "user": {"username": u.username}, "access_token": token}
 @app.post("/auth/logout")
 def logout(response: Response):
     """Logout endpoint."""
@@ -426,8 +537,7 @@ def health(db: Session = Depends(get_db)):
         logger.error(f"Health check failed: {e}")
         return JSONResponse({"status": "db_error", "error": str(e)}, status_code=500)
 
-# ===== Protected Router =====
-protected = APIRouter(dependencies=[Depends(get_current_user)])
+
 
 # ----- Settings (per user) -----
 @protected.get("/settings", response_model=SettingsOut)
