@@ -24,13 +24,15 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from .db import SessionLocal, engine, get_db
 from .models import (
     Base, Trip, Vehicle, Place, OdometerSnapshot, TripTemplate, Setting,
-    User, HASetting
+    User, HASetting, APIToken
 )
 from .pdf import render_journal_pdf
 from .security import sign_jwt, verify_jwt, hash_password, verify_password
+from .security import verify_token as verify_pat, hash_token as hash_pat, gen_plain_api_token, is_expired
 
 # ===== Logging Setup =====
 logging.basicConfig(
