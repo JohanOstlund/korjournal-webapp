@@ -1005,34 +1005,48 @@ def export_pdf_endpoint(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
     vehicle: Optional[str] = Query(None),
-    year: Optional[int] = Query(None),
+    year: Optional[int] = Query(datetime.utcnow().year),
 ):
-    """Export trips as PDF."""
-    q = db.query(Trip, Vehicle).join(Vehicle, Trip.vehicle_id == Vehicle.id).filter(Trip.user_id == user.id)
-    if vehicle: q = q.filter(Vehicle.reg_no == vehicle)
-    if year:
-        q = q.filter(Trip.started_at >= datetime(year, 1, 1), Trip.started_at < datetime(year + 1, 1, 1))
-    q = q.filter(Trip.ended_at.isnot(None))
+    """Export trips as PDF – always for a specific year."""
+    start = datetime(year, 1, 1)
+    end = datetime(year + 1, 1, 1)
+
+    q = (
+        db.query(Trip, Vehicle)
+        .join(Vehicle, Trip.vehicle_id == Vehicle.id)
+        .filter(Trip.user_id == user.id)
+        .filter(Trip.started_at >= start, Trip.started_at < end)
+        .filter(Trip.ended_at.isnot(None))
+        .order_by(Trip.started_at.asc())
+    )
+    if vehicle:
+        q = q.filter(Vehicle.reg_no == vehicle)
 
     rows = []
-    for t, v in q.order_by(Trip.started_at.asc()).all():
+    for t, v in q.all():
         rows.append({
             "datum": t.started_at.strftime('%Y-%m-%d') if t.started_at else "",
-            "regnr": v.reg_no,                       # NY
-            "driver": t.driver_name or "",           # NY
+            "regnr": v.reg_no,
+            "driver": t.driver_name or "",
             "start_odo": t.start_odometer_km or "",
             "end_odo": t.end_odometer_km or "",
             "km": t.distance_km or "",
-            "start_adress": t.start_address or "",
-            "slut_adress": t.end_address or "",
             "syfte": t.purpose or "",
             "tjanst": t.business,
+            "start_adress": t.start_address or "",
+            "slut_adress": t.end_address or "",
         })
 
+    if not rows:
+        raise HTTPException(404, f"Inga resor hittades för år {year}")
+
     pdf_bytes = render_journal_pdf(rows)
-    logger.info(f"PDF export for user: {user.username}")
-    return Response(content=pdf_bytes, media_type="application/pdf",
-                    headers={"Content-Disposition": "attachment; filename=korjournal.pdf"})
+    filename = f"korjournal_{year}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 # Register protected routes
 app.include_router(protected)
