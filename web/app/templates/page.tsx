@@ -2,8 +2,15 @@
 import { useEffect, useState } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
-const fetchAuth = (url: string, options: RequestInit = {}) =>
-  fetch(url, { credentials: 'include', ...options });
+
+// >>> NYTT: hjälpare som alltid skickar cookies <<<
+async function fetchAuth(input: RequestInfo | URL, init: RequestInit = {}) {
+  const headers = new Headers(init.headers || {});
+  if (!headers.has('Content-Type') && init.body) {
+    headers.set('Content-Type', 'application/json');
+  }
+  return fetch(input, { credentials: 'include', ...init, headers });
+}
 
 type Template = {
   id: number;
@@ -22,7 +29,7 @@ export default function TemplatesPage() {
   const [status, setStatus] = useState('');
 
   // Form state
-  const [editId, setEditId] = useState<number | null>(null); // null = ny mall
+  const [editId, setEditId] = useState<number | null>(null);
   const [name, setName] = useState('');
   const [purpose, setPurpose] = useState('');
   const [business, setBusiness] = useState(true);
@@ -32,14 +39,8 @@ export default function TemplatesPage() {
   const [endAddr, setEndAddr] = useState('');
 
   const resetForm = () => {
-    setEditId(null);
-    setName('');
-    setPurpose('');
-    setBusiness(true);
-    setVehicle('');
-    setDriver('');
-    setStartAddr('');
-    setEndAddr('');
+    setEditId(null); setName(''); setPurpose(''); setBusiness(true);
+    setVehicle(''); setDriver(''); setStartAddr(''); setEndAddr('');
   };
 
   const loadTemplates = async () => {
@@ -84,16 +85,8 @@ export default function TemplatesPage() {
     };
     const url = editId ? `${API}/templates/${editId}` : `${API}/templates`;
     const method = editId ? 'PUT' : 'POST';
-    const r = await fetchAuth(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!r.ok) {
-      const txt = await r.text();
-      alert(`Kunde inte spara: ${txt}`);
-      return;
-    }
+    const r = await fetchAuth(url, { method, body: JSON.stringify(payload) });
+    if (!r.ok) { const txt = await r.text(); alert(`Kunde inte spara: ${txt}`); return; }
     await loadTemplates();
     resetForm();
   };
@@ -101,11 +94,7 @@ export default function TemplatesPage() {
   const deleteTemplate = async (id: number) => {
     if (!confirm('Ta bort mallen?')) return;
     const r = await fetchAuth(`${API}/templates/${id}`, { method: 'DELETE' });
-    if (!r.ok) {
-      const txt = await r.text();
-      alert(`Kunde inte ta bort: ${txt}`);
-      return;
-    }
+    if (!r.ok) { const txt = await r.text(); alert(`Kunde inte ta bort: ${txt}`); return; }
     if (editId === id) resetForm();
     await loadTemplates();
   };
@@ -116,34 +105,15 @@ export default function TemplatesPage() {
 
       {/* Formulär */}
       <div style={{ display:'grid', gap:8, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
-        <label>
-          Namn
-          <input value={name} onChange={e=>setName(e.target.value)} />
-        </label>
-        <label>
-          Syfte
-          <input value={purpose} onChange={e=>setPurpose(e.target.value)} />
-        </label>
+        <label> Namn <input value={name} onChange={e=>setName(e.target.value)} /> </label>
+        <label> Syfte <input value={purpose} onChange={e=>setPurpose(e.target.value)} /> </label>
         <label style={{ display:'flex', alignItems:'center', gap:8 }}>
-          Tjänst
-          <input type="checkbox" checked={business} onChange={e=>setBusiness(e.target.checked)} />
+          Tjänst <input type="checkbox" checked={business} onChange={e=>setBusiness(e.target.checked)} />
         </label>
-        <label>
-          Regnr
-          <input value={vehicle} onChange={e=>setVehicle(e.target.value)} />
-        </label>
-        <label>
-          Förare
-          <input value={driver} onChange={e=>setDriver(e.target.value)} />
-        </label>
-        <label>
-          Startadress
-          <input value={startAddr} onChange={e=>setStartAddr(e.target.value)} />
-        </label>
-        <label>
-          Slutadress
-          <input value={endAddr} onChange={e=>setEndAddr(e.target.value)} />
-        </label>
+        <label> Regnr <input value={vehicle} onChange={e=>setVehicle(e.target.value)} /> </label>
+        <label> Förare <input value={driver} onChange={e=>setDriver(e.target.value)} /> </label>
+        <label> Startadress <input value={startAddr} onChange={e=>setStartAddr(e.target.value)} /> </label>
+        <label> Slutadress <input value={endAddr} onChange={e=>setEndAddr(e.target.value)} /> </label>
       </div>
       <div style={{ display:'flex', gap:8, marginTop:8 }}>
         <button onClick={saveTemplate}>{editId ? 'Spara ändringar' : 'Skapa mall'}</button>
