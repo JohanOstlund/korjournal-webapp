@@ -3,6 +3,15 @@ import { useEffect, useMemo, useState } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
+// >>> NYTT: hjälpare som alltid skickar cookies <<<
+async function fetchAuth(input: RequestInfo | URL, init: RequestInit = {}) {
+  const headers = new Headers(init.headers || {});
+  if (!headers.has('Content-Type') && init.body) {
+    headers.set('Content-Type', 'application/json');
+  }
+  return fetch(input, { credentials: 'include', ...init, headers });
+}
+
 type Trip = {
   id: number;
   vehicle_reg: string;
@@ -29,21 +38,17 @@ type Template = {
   default_end_address?: string | null;
 };
 
-// Tolka serverns datum (UTC/naivt) -> Date
+// Datumhjälpare
 const parseServerDate = (isoOrNaive: string | null): Date | null => {
   if (!isoOrNaive) return null;
   const s = isoOrNaive.trim();
   if (/[zZ]$/.test(s) || /[+-]\d{2}:\d{2}$/.test(s)) return new Date(s);
   return new Date(s + 'Z');
 };
-
-// För display i UI (lokal tid)
 const fmtLocal = (isoOrNaive: string | null) => {
   const d = parseServerDate(isoOrNaive);
   return d ? d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '';
 };
-
-// För <input type="datetime-local"> krävs "YYYY-MM-DDTHH:mm"
 const toLocalInputValue = (isoOrNaive: string | null) => {
   const d = parseServerDate(isoOrNaive);
   if (!d) return '';
@@ -55,8 +60,6 @@ const toLocalInputValue = (isoOrNaive: string | null) => {
   const mi = pad(d.getMinutes());
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
 };
-
-// Från <input datetime-local> (lokal) -> ISO UTC-string
 const fromLocalInputToISOStringUTC = (val: string | null) => {
   if (!val) return null;
   const d = new Date(val);
@@ -65,14 +68,13 @@ const fromLocalInputToISOStringUTC = (val: string | null) => {
 
 export default function Home() {
   const [trips, setTrips] = useState<Trip[]>([]);
-  const [vehicle, setVehicle] = useState(''); // filter: visa bara detta regnr
+  const [vehicle, setVehicle] = useState('');
   const [status, setStatus] = useState<string>('');
 
-  // --- NYTT: Årsval för exporter ---
+  // Export: årsväljare
   const [year, setYear] = useState<number>(new Date().getFullYear());
   const years = useMemo(() => {
     const y = new Date().getFullYear();
-    // Anpassa gärna spannet – detta visar (y-2 .. y+2)
     return [y - 2, y - 1, y, y + 1, y + 2];
   }, []);
 
@@ -82,8 +84,6 @@ export default function Home() {
   const [driver, setDriver] = useState<string>('');
   const [startAddress, setStartAddress] = useState<string>('');
   const [endAddress, setEndAddress] = useState<string>('');
-
-  // Odo-fält
   const [startOdo, setStartOdo] = useState<number | null>(null);
   const [endOdo, setEndOdo] = useState<number | null>(null);
 
@@ -92,7 +92,7 @@ export default function Home() {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
 
-  // ==== Redigera resa ====
+  // Redigering
   const [editId, setEditId] = useState<number | null>(null);
   const [editVehicle, setEditVehicle] = useState('');
   const [editPurpose, setEditPurpose] = useState('');
@@ -102,12 +102,12 @@ export default function Home() {
   const [editEndAddr, setEditEndAddr] = useState('');
   const [editStartOdo, setEditStartOdo] = useState<number | null>(null);
   const [editEndOdo, setEditEndOdo] = useState<number | null>(null);
-  const [editStartedAt, setEditStartedAt] = useState(''); // datetime-local
-  const [editEndedAt, setEditEndedAt] = useState(''); // datetime-local
+  const [editStartedAt, setEditStartedAt] = useState('');
+  const [editEndedAt, setEditEndedAt] = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const [editDeleting, setEditDeleting] = useState(false);
 
-  // ==== Använd mall (dropdown) ====
+  // Mallar (dropdown)
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<number | ''>('');
 
@@ -118,7 +118,7 @@ export default function Home() {
         ? `${API}/trips?vehicle=${encodeURIComponent(vehicle.trim())}`
         : `${API}/trips`;
       const url = `${urlBase}${urlBase.includes('?') ? '&' : '?'}include_active=true&_ts=${Date.now()}`;
-      const r = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
+      const r = await fetchAuth(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
       if (!r.ok) throw new Error(`GET /trips ${r.status}`);
       const data = (await r.json()) as Trip[];
       setTrips(data);
@@ -132,11 +132,10 @@ export default function Home() {
 
   useEffect(() => { loadTrips(); }, [vehicle]);
 
-  // Ladda mallar för dropdown (utan CRUD här)
   useEffect(() => {
     const loadTemplates = async () => {
       try {
-        const r = await fetch(`${API}/templates?_ts=${Date.now()}`, { cache: 'no-store' });
+        const r = await fetchAuth(`${API}/templates?_ts=${Date.now()}`, { cache: 'no-store' });
         if (r.ok) setTemplates(await r.json());
       } catch (e) {
         console.error('Kunde inte ladda mallar', e);
@@ -145,21 +144,17 @@ export default function Home() {
     loadTemplates();
   }, []);
 
-  // Aktiv resa för det valda fordonet (eller första aktiva om vehicle är tomt)
   const activeTrip = useMemo(() => {
     const list = trips.filter(t => t.ended_at === null);
     if (vehicle.trim()) return list.find(t => t.vehicle_reg === vehicle.trim()) || null;
     return list[0] || null;
   }, [trips, vehicle]);
 
-  const round1 = (n: number) => Math.round(n * 10) / 10;
-
-  // HA: endast läsa sensor (utan force), returnerar km eller null
+  // HA helpers
   const haPollOdometerNoForce = async (): Promise<number | null> => {
     try {
-      const res = await fetch(`${API}/integrations/home-assistant/poll`, {
+      const res = await fetchAuth(`${API}/integrations/home-assistant/poll`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ vehicle_reg: (vehicle || 'UNKNOWN').trim() }),
       });
       if (!res.ok) return null;
@@ -169,13 +164,10 @@ export default function Home() {
       return null;
     }
   };
-
-  // HA: Force update + poll (med force)
   const haForceUpdateAndPoll = async (): Promise<number | null> => {
     try {
-      const res = await fetch(`${API}/integrations/home-assistant/force-update-and-poll`, {
+      const res = await fetchAuth(`${API}/integrations/home-assistant/force-update-and-poll`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ vehicle_reg: (vehicle || 'UNKNOWN').trim() }),
       });
       if (!res.ok) return null;
@@ -186,47 +178,23 @@ export default function Home() {
     }
   };
 
-  // ====== Starta/avsluta resa ======
+  // Start/avsluta
   const startTrip = async () => {
-    if (!vehicle.trim()) {
-      alert('Fyll i Regnr först (eller välj).');
-      return;
-    }
+    if (!vehicle.trim()) { alert('Fyll i Regnr först (eller välj).'); return; }
     try {
       setStarting(true);
-
-      // 1) Om användaren matat in start-odo → använd det, ring inte HA.
-      let odo = startOdo;
-
-      // 2) Annars: prova att bara läsa nuvarande värde från HA (utan force).
-      if (odo == null) {
-        odo = await haPollOdometerNoForce();
-      }
-
-      // 3) Om fortfarande null: prova force update + poll.
-      if (odo == null) {
-        odo = await haForceUpdateAndPoll();
-      }
-
+      let odo = startOdo ?? await haPollOdometerNoForce() ?? await haForceUpdateAndPoll();
       const body = {
         vehicle_reg: vehicle.trim(),
-        start_odometer_km: odo ?? undefined, // undefined = utelämna fältet om vi inte fick värde
+        start_odometer_km: odo ?? undefined,
         purpose: purpose || undefined,
         business,
         driver_name: driver || undefined,
         start_address: startAddress || undefined,
-        end_address: endAddress || undefined, // spara slutadress vid START
+        end_address: endAddress || undefined,
       };
-      const r = await fetch(`${API}/trips/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        const txt = await r.text();
-        alert(`Kunde inte starta resa: ${txt}`);
-        return;
-      }
+      const r = await fetchAuth(`${API}/trips/start`, { method: 'POST', body: JSON.stringify(body) });
+      if (!r.ok) { const txt = await r.text(); alert(`Kunde inte starta resa: ${txt}`); return; }
       setStartOdo(odo ?? null);
       setEndOdo(null);
       await loadTrips();
@@ -236,40 +204,14 @@ export default function Home() {
   };
 
   const finishTrip = async () => {
-    if (!activeTrip) {
-      alert('Ingen pågående resa att avsluta.');
-      return;
-    }
+    if (!activeTrip) { alert('Ingen pågående resa att avsluta.'); return; }
     try {
       setStopping(true);
-
-      // 1) Om användaren matat in slut-odo → använd det, ring inte HA.
-      let endVal = endOdo;
-
-      // 2) Annars: prova med force update först (ofta färskast värde vid stopp).
-      if (endVal == null) {
-        endVal = await haForceUpdateAndPoll();
-      }
-
-      // 3) Om fortfarande null: prova enkel poll utan force.
-      if (endVal == null) {
-        endVal = await haPollOdometerNoForce();
-      }
-
-      // Skicka endast fält som ska ändras vid avslut
+      let endVal = endOdo ?? await haForceUpdateAndPoll() ?? await haPollOdometerNoForce();
       const body: any = { trip_id: activeTrip.id };
       if (endVal != null) body.end_odometer_km = endVal;
-
-      const r = await fetch(`${API}/trips/finish`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        const txt = await r.text();
-        alert(`Kunde inte avsluta resa: ${txt}`);
-        return;
-      }
+      const r = await fetchAuth(`${API}/trips/finish`, { method: 'POST', body: JSON.stringify(body) });
+      if (!r.ok) { const txt = await r.text(); alert(`Kunde inte avsluta resa: ${txt}`); return; }
       setEndOdo(endVal ?? null);
       await loadTrips();
     } finally {
@@ -277,7 +219,7 @@ export default function Home() {
     }
   };
 
-  // Mall → fyll reseformulär
+  // Mall → fyll formulär
   const onPickTemplate = (val: string) => {
     if (!val) { setSelectedTemplate(''); return; }
     const id = parseInt(val, 10);
@@ -293,13 +235,6 @@ export default function Home() {
     }
   };
 
-  const activeKmLive = useMemo(() => {
-    if (!activeTrip) return undefined;
-    if (startOdo != null && endOdo != null) return Math.round((endOdo - startOdo) * 10) / 10;
-    return undefined;
-  }, [activeTrip, startOdo, endOdo]);
-
-  // ====== Ladda en resa i redigeringsformuläret ======
   const loadTripIntoEditor = (t: Trip) => {
     setEditId(t.id);
     setEditVehicle(t.vehicle_reg || '');
@@ -331,17 +266,10 @@ export default function Home() {
     setEditEndedAt('');
   };
 
-  // ====== Spara (PUT) / Ta bort (DELETE) resa ======
   const saveEdit = async () => {
     if (!editId) return;
-    if (!editVehicle.trim()) {
-      alert('Regnr krävs.');
-      return;
-    }
-    if (!editStartedAt) {
-      alert('Starttid krävs.');
-      return;
-    }
+    if (!editVehicle.trim()) { alert('Regnr krävs.'); return; }
+    if (!editStartedAt) { alert('Starttid krävs.'); return; }
     try {
       setEditSaving(true);
       const payload: any = {
@@ -355,23 +283,13 @@ export default function Home() {
         driver_name: editDriver || null,
         start_address: editStartAddr || null,
         end_address: editEndAddr || null,
-        distance_km: null, // låt backend räkna från odo om möjligt
+        distance_km: null,
       };
-      const r = await fetch(`${API}/trips/${editId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!r.ok) {
-        const txt = await r.text();
-        alert(`Kunde inte spara resan: ${txt}`);
-        return;
-      }
+      const r = await fetchAuth(`${API}/trips/${editId}`, { method: 'PUT', body: JSON.stringify(payload) });
+      if (!r.ok) { const txt = await r.text(); alert(`Kunde inte spara resan: ${txt}`); return; }
       await loadTrips();
       resetEditor();
-    } finally {
-      setEditSaving(false);
-    }
+    } finally { setEditSaving(false); }
   };
 
   const deleteEdit = async () => {
@@ -379,20 +297,14 @@ export default function Home() {
     if (!confirm('Ta bort den här resan?')) return;
     try {
       setEditDeleting(true);
-      const r = await fetch(`${API}/trips/${editId}`, { method: 'DELETE' });
-      if (!r.ok) {
-        const txt = await r.text();
-        alert(`Kunde inte ta bort resan: ${txt}`);
-        return;
-      }
+      const r = await fetchAuth(`${API}/trips/${editId}`, { method: 'DELETE' });
+      if (!r.ok) { const txt = await r.text(); alert(`Kunde inte ta bort resan: ${txt}`); return; }
       await loadTrips();
       resetEditor();
-    } finally {
-      setEditDeleting(false);
-    }
+    } finally { setEditDeleting(false); }
   };
 
-  // Hjälpare för exportlänkar med vehicle + year
+  // Exportlänkar
   const csvUrl = `${API}/exports/journal.csv?year=${year}${vehicle ? `&vehicle=${encodeURIComponent(vehicle)}` : ''}`;
   const pdfUrl = `${API}/exports/journal.pdf?year=${year}${vehicle ? `&vehicle=${encodeURIComponent(vehicle)}` : ''}`;
 
@@ -409,20 +321,17 @@ export default function Home() {
             style={{ marginLeft: 8 }}
           />
         </label>
-
-        {/* NYTT: Årsväljare */}
         <label style={{ marginLeft: 8 }}>
           År
           <select value={year} onChange={e => setYear(Number(e.target.value))} style={{ marginLeft: 8 }}>
             {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </label>
-
         <button onClick={()=> window.open(csvUrl, '_blank')}>Exportera CSV</button>
         <button onClick={()=> window.open(pdfUrl, '_blank')}>Exportera PDF</button>
       </div>
 
-      {/* Mallval + basfält för ny/pågående resa */}
+      {/* Mallval + basfält */}
       <div style={{ display:'grid', gap:8, marginTop:12, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
         <label>
           Mall
@@ -453,7 +362,7 @@ export default function Home() {
         </label>
       </div>
 
-      {/* Pågående resa – panel */}
+      {/* Pågående resa */}
       {activeTrip ? (
         <div style={{ marginTop: 16, padding: 12, border: '1px solid #ddd', borderRadius: 8, background: '#fffbea' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap: 8, flexWrap:'wrap' }}>
@@ -463,7 +372,7 @@ export default function Home() {
                 Förare: <strong>{activeTrip.driver_name || driver || '-'}</strong>
                 {' • '}
                 Start-odo: <strong>{activeTrip.start_odometer_km ?? startOdo ?? '-'}</strong>
-                {activeKmLive != null && <> • Km (auto): <strong>{activeKmLive}</strong></>}
+                {(startOdo != null && endOdo != null) && <> • Km (auto): <strong>{Math.round((endOdo - startOdo) * 10) / 10}</strong></>}
                 {(activeTrip.start_address || startAddress) && <> • Startadress: <strong>{activeTrip.start_address || startAddress}</strong></>}
               </div>
             </div>
@@ -505,7 +414,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Redigera/ta bort resa */}
+      {/* Redigera resa */}
       <h2 id="edit-panel" style={{ marginTop: 28, fontSize: 18 }}>Redigera resa</h2>
       {editId ? (
         <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12, background:'#fafafa' }}>
@@ -552,19 +461,11 @@ export default function Home() {
             </label>
             <label>
               Starttid
-              <input
-                type="datetime-local"
-                value={editStartedAt}
-                onChange={e=> setEditStartedAt(e.target.value)}
-              />
+              <input type="datetime-local" value={editStartedAt} onChange={e=> setEditStartedAt(e.target.value)} />
             </label>
             <label>
               Sluttid
-              <input
-                type="datetime-local"
-                value={editEndedAt}
-                onChange={e=> setEditEndedAt(e.target.value)}
-              />
+              <input type="datetime-local" value={editEndedAt} onChange={e=> setEditEndedAt(e.target.value)} />
             </label>
           </div>
           <div style={{ display:'flex', gap:8, marginTop:12 }}>
@@ -615,16 +516,13 @@ export default function Home() {
                 <td>{t.ended_at ? (t.distance_km ?? '-') : <em>Pågår</em>}</td>
                 <td>{t.purpose || ''}</td>
                 <td>{t.business ? 'Tjänst' : 'Privat'}</td>
-                <td>
-                  <button onClick={()=> loadTripIntoEditor(t)}>Redigera</button>
-                </td>
+                <td><button onClick={()=> loadTripIntoEditor(t)}>Redigera</button></td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
 
-      {/* Statusrad */}
       <div style={{ marginTop: 12, fontSize: 12, color: '#666' }}>
         API: <code>{API}</code> — {status}
       </div>
