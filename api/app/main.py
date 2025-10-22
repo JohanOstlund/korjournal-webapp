@@ -142,9 +142,6 @@ def get_current_user(
                 raise HTTPException(401, "User not found")
             return u
         # prova som PAT
-        # Vi lagrar endast hash i DB -> vi måste iterera eller hitta via indexerat prefix.
-        # För att undvika fullskan: lagra t.ex. de första 10 tecknen som 'lookup_key' om du vill.
-        # En enkel approach: hämta alla aktiva tokens för snabb POC (ok för få användare).
         pats = db.query(APIToken).filter(APIToken.revoked == False).all()
         for pat in pats:
             if verify_pat(token, pat.token_hash):
@@ -153,7 +150,6 @@ def get_current_user(
                 u = db.query(User).filter(User.id == pat.user_id).first()
                 if not u:
                     raise HTTPException(401, "User not found")
-                # scopes kan du validera här om du vill
                 return u
         raise HTTPException(401, "Invalid Authorization token")
 
@@ -1022,6 +1018,8 @@ def export_pdf_endpoint(
     for t, v in q.order_by(Trip.started_at.asc()).all():
         rows.append({
             "datum": t.started_at.strftime('%Y-%m-%d') if t.started_at else "",
+            "regnr": v.reg_no,                       # NY
+            "driver": t.driver_name or "",           # NY
             "start_odo": t.start_odometer_km or "",
             "end_odo": t.end_odometer_km or "",
             "km": t.distance_km or "",
