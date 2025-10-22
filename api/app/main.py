@@ -224,6 +224,8 @@ def odo_delta_distance(start_odo: Optional[float], end_odo: Optional[float]) -> 
     if d < 0:
         return None
     return round(d, 1)
+    # ===== Protected Router =====
+protected = APIRouter(dependencies=[Depends(get_current_user)])
 # ===== Bearer Token =======
 
 class CreateTokenIn(BaseModel):
@@ -241,6 +243,7 @@ class TokenOut(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 @protected.post("/auth/tokens", response_model=TokenOut)
 def create_token(payload: CreateTokenIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -534,8 +537,7 @@ def health(db: Session = Depends(get_db)):
         logger.error(f"Health check failed: {e}")
         return JSONResponse({"status": "db_error", "error": str(e)}, status_code=500)
 
-# ===== Protected Router =====
-protected = APIRouter(dependencies=[Depends(get_current_user)])
+
 
 # ----- Settings (per user) -----
 @protected.get("/settings", response_model=SettingsOut)
