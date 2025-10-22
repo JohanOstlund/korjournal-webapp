@@ -103,7 +103,20 @@ class Setting(Base):
     key = Column(String(190), unique=True, nullable=False)
     value = Column(Text, nullable=True)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    
+class APIToken(Base):
+    __tablename__ = "api_tokens"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    token_hash = Column(String(255), nullable=False, unique=True)  # bcrypt hash
+    scope = Column(String(100), nullable=False, default="full")    # t.ex. full, ha, read
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    revoked = Column(Boolean, default=False, nullable=False)
 
+    user = relationship("User", backref="api_tokens")
+    
 class HASetting(Base):
     __tablename__ = "ha_settings"
     id = Column(Integer, primary_key=True)
