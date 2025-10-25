@@ -11,6 +11,7 @@ En enkel och stabil körjournal med **Home Assistant-integration**.
 ## 🚀 Funktionalitet
 
 - Skapa resor med start-/sluttid, adresser, mätarställning (start/slut) och automatisk distans.
+- Går att redigera redan skapade/pågående resor.
 - Typer: **Tjänst** eller **Privat**, syfte, förare och registreringsnummer.
 - Lista resor sorterade per datum.
 - Rimlighetskontroll: max 2000 km/resa.
@@ -18,8 +19,7 @@ En enkel och stabil körjournal med **Home Assistant-integration**.
 - Home Assistant-integration inkl. **force-update-and-poll** av mätarställning.
 
 ### Kända begränsningar
-- Går **inte** att låsa/öppna/stänga resor.  
-- Går **inte** att redigera redan skapade resor.
+- Går **inte** att låsa/stänga resor. 
 
 ---
 
