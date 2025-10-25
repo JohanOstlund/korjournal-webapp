@@ -1,0 +1,85 @@
+{
+  "info": {
+    "name": "Körjournal API",
+    "_postman_id": "b2d9a6b4-7b2f-4e62-9c1e-123456789abc",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": { "method": "GET", "url": "{{BASE}}/health" }
+    },
+    {
+      "name": "Auth / Token",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{BASE}}/auth/token",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"{{USERNAME}}\",\"password\":\"{{PASSWORD}}\"}"
+        }
+      }
+    },
+    {
+      "name": "Trips / Create",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{TOKEN}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{BASE}}/trips",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"date\":\"2025-10-25\",\n  \"startTime\":\"2025-10-25T08:00:00Z\",\n  \"endTime\":\"2025-10-25T09:15:00Z\",\n  \"startAddress\":\"Jakobsberg\",\n  \"startCity\":\"Järfälla\",\n  \"endAddress\":\"Norrtälje Sjukhus\",\n  \"endCity\":\"Norrtälje\",\n  \"startOdo\":10000,\n  \"endOdo\":10085,\n  \"type\":\"Tjänst\",\n  \"purpose\":\"Pendling\",\n  \"driverName\":\"Johan Ö\",\n  \"carReg\":\"ABC123\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Trips / List",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+        "url": "{{BASE}}/trips?limit=50&offset=0"
+      }
+    },
+    {
+      "name": "Trips / Finish",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{TOKEN}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": "{{BASE}}/trips/finish",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"endTime\":\"2025-10-25T09:15:00Z\",\n  \"endAddress\":\"Norrtälje Sjukhus\",\n  \"endCity\":\"Norrtälje\",\n  \"endOdo\":10085\n}"
+        }
+      }
+    },
+    {
+      "name": "Export / PDF (year required)",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+        "url": "{{BASE}}/exports/journal.pdf?year=2025"
+      }
+    },
+    {
+      "name": "HA / Force Update & Poll",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{TOKEN}}" }],
+        "url": "{{BASE}}/integrations/home-assistant/force-update-and-poll"
+      }
+    }
+  ],
+  "variable": [
+    { "key": "BASE", "value": "http://localhost:8000" },
+    { "key": "USERNAME", "value": "admin@korjournal.local" },
+    { "key": "PASSWORD", "value": "ChangeMe!123" },
+    { "key": "TOKEN", "value": "" }
+  ]
+}
