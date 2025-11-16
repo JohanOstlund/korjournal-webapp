@@ -364,7 +364,7 @@ class TemplateOut(BaseModel):
         from_attributes = True
 
 class HAPollIn(BaseModel):
-    vehicle_reg: str
+    vehicle_reg: Optional[str] = None
     entity_id: Optional[str] = None
     at: Optional[datetime] = None
 
