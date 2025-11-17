@@ -597,7 +597,7 @@ async def ha_poll(payload: HAPollIn, user: User = Depends(get_current_user), db:
 @protected.post("/integrations/home-assistant/force-update-and-poll")
 async def ha_force_update_and_poll(
     payload: HAPollIn,
-    wait_seconds: int = 15,
+    wait_seconds: int = 35,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
