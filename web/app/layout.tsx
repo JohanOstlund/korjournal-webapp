@@ -17,6 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <nav className="nav">
           <Link href="/" className={isActive('/')}>Resor</Link>
           <Link href="/templates" className={isActive('/templates')}>Mallar</Link>
+          <Link href="/reseavdrag" className={isActive('/reseavdrag')}>Milersättning</Link>
           <Link href="/settings" className={isActive('/settings')}>Inställningar</Link>
           <Link href="/admin" className={isActive('/admin')}>Admin</Link>
         </nav>

@@ -438,6 +438,82 @@ input[type="checkbox"] {
 .mt-12 { margin-top: 12px; }
 .mt-16 { margin-top: 16px; }
 
+/* ===== Summary Grid (key-value pairs) ===== */
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 16px;
+  font-size: 14px;
+}
+.summary-grid dt {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+.summary-grid dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.summary-divider {
+  grid-column: 1 / -1;
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 4px 0;
+}
+.summary-highlight {
+  font-size: 16px;
+  font-weight: 700;
+}
+.summary-highlight.positive { color: var(--color-success); }
+.summary-highlight.negative { color: var(--color-danger); }
+
+.stat-cards {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}
+.stat-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  text-align: center;
+}
+.stat-card-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.stat-card-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-top: 4px;
+}
+
+/* Collapsible card header */
+.card-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 0;
+}
+.card-toggle::after {
+  content: '▾';
+  font-size: 14px;
+  color: var(--color-text-light);
+  transition: transform var(--transition);
+}
+.card-toggle.collapsed::after {
+  transform: rotate(-90deg);
+}
+
 /* ===== Mobile adjustments ===== */
 @media (max-width: 640px) {
   .main-container { padding: 12px; }
