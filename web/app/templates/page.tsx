@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
-// >>> NYTT: hjälpare som alltid skickar cookies <<<
 async function fetchAuth(input: RequestInfo | URL, init: RequestInit = {}) {
   const headers = new Headers(init.headers || {});
   if (!headers.has('Content-Type') && init.body) {
@@ -28,7 +27,6 @@ export default function TemplatesPage() {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
 
-  // Form state
   const [editId, setEditId] = useState<number | null>(null);
   const [name, setName] = useState('');
   const [purpose, setPurpose] = useState('');
@@ -50,9 +48,9 @@ export default function TemplatesPage() {
       if (!r.ok) throw new Error(`GET /templates ${r.status}`);
       const data = (await r.json()) as Template[];
       setTemplates(data);
-      setStatus(`OK – ${data.length} mallar`);
+      setStatus(`${data.length} mallar`);
     } catch (e: any) {
-      setStatus(`Fel vid laddning: ${e?.message || e}`);
+      setStatus(`Fel: ${e?.message || e}`);
     } finally {
       setLoading(false);
     }
@@ -103,70 +101,127 @@ export default function TemplatesPage() {
     <div>
       <h1>Mallar</h1>
 
-      {/* Formulär */}
-      <div style={{ display:'grid', gap:8, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
-        <label> Namn <input value={name} onChange={e=>setName(e.target.value)} /> </label>
-        <label> Syfte <input value={purpose} onChange={e=>setPurpose(e.target.value)} /> </label>
-        <label style={{ display:'flex', alignItems:'center', gap:8 }}>
-          Tjänst <input type="checkbox" checked={business} onChange={e=>setBusiness(e.target.checked)} />
-        </label>
-        <label> Regnr <input value={vehicle} onChange={e=>setVehicle(e.target.value)} /> </label>
-        <label> Förare <input value={driver} onChange={e=>setDriver(e.target.value)} /> </label>
-        <label> Startadress <input value={startAddr} onChange={e=>setStartAddr(e.target.value)} /> </label>
-        <label> Slutadress <input value={endAddr} onChange={e=>setEndAddr(e.target.value)} /> </label>
-      </div>
-      <div style={{ display:'flex', gap:8, marginTop:8 }}>
-        <button onClick={saveTemplate}>{editId ? 'Spara ändringar' : 'Skapa mall'}</button>
-        <button onClick={resetForm} type="button">Rensa</button>
-        {editId && (
-          <button onClick={()=> editId && deleteTemplate(editId)} type="button" style={{ color:'#b00020' }}>
-            Ta bort
+      {/* Form */}
+      <div className="card">
+        <div className="card-header">{editId ? 'Redigera mall' : 'Skapa ny mall'}</div>
+        <div className="form-grid">
+          <div className="field">
+            <span className="field-label">Namn</span>
+            <input type="text" value={name} onChange={e => setName(e.target.value)} />
+          </div>
+          <div className="field">
+            <span className="field-label">Syfte</span>
+            <input type="text" value={purpose} onChange={e => setPurpose(e.target.value)} />
+          </div>
+          <div className="field">
+            <span className="field-label">Typ</span>
+            <div className="field-row" style={{ minHeight: 44 }}>
+              <input type="checkbox" checked={business} onChange={e => setBusiness(e.target.checked)} id="chk-tpl-biz" />
+              <label htmlFor="chk-tpl-biz" style={{ fontSize: 15, cursor: 'pointer' }}>Tjänsteresa</label>
+            </div>
+          </div>
+          <div className="field">
+            <span className="field-label">Regnr</span>
+            <input type="text" value={vehicle} onChange={e => setVehicle(e.target.value)} />
+          </div>
+          <div className="field">
+            <span className="field-label">Förare</span>
+            <input type="text" value={driver} onChange={e => setDriver(e.target.value)} />
+          </div>
+          <div className="field">
+            <span className="field-label">Startadress</span>
+            <input type="text" value={startAddr} onChange={e => setStartAddr(e.target.value)} />
+          </div>
+          <div className="field">
+            <span className="field-label">Slutadress</span>
+            <input type="text" value={endAddr} onChange={e => setEndAddr(e.target.value)} />
+          </div>
+        </div>
+        <div className="btn-group mt-16">
+          <button className="btn btn-primary" onClick={saveTemplate}>
+            {editId ? 'Spara ändringar' : 'Skapa mall'}
           </button>
+          <button className="btn btn-ghost" onClick={resetForm}>Rensa</button>
+          {editId && (
+            <button className="btn btn-danger" onClick={() => editId && deleteTemplate(editId)}>Ta bort</button>
+          )}
+        </div>
+      </div>
+
+      {/* List */}
+      <div className="section">
+        <h2>Befintliga mallar <span className="text-light text-sm">({templates.length})</span></h2>
+        {loading ? (
+          <p className="text-muted">Laddar…</p>
+        ) : templates.length === 0 ? (
+          <p className="text-muted">Inga mallar ännu.</p>
+        ) : (
+          <>
+            {/* Desktop table */}
+            <div className="responsive-table">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Namn</th>
+                    <th>Typ</th>
+                    <th>Syfte</th>
+                    <th>Regnr</th>
+                    <th>Förare</th>
+                    <th>Startadress</th>
+                    <th>Slutadress</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {templates.map(t => (
+                    <tr key={t.id}>
+                      <td><strong>{t.name}</strong></td>
+                      <td><span className={`badge ${t.business ? 'badge-business' : 'badge-private'}`}>{t.business ? 'Tjänst' : 'Privat'}</span></td>
+                      <td>{t.default_purpose || ''}</td>
+                      <td>{t.default_vehicle_reg || ''}</td>
+                      <td>{t.default_driver_name || ''}</td>
+                      <td>{t.default_start_address || ''}</td>
+                      <td>{t.default_end_address || ''}</td>
+                      <td>
+                        <div className="btn-group">
+                          <button className="btn btn-ghost btn-sm" onClick={() => loadIntoForm(t)}>Redigera</button>
+                          <button className="btn btn-danger btn-sm" onClick={() => deleteTemplate(t.id)}>Ta bort</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="responsive-cards">
+              {templates.map(t => (
+                <div key={t.id} className="card">
+                  <div className="flex-between">
+                    <strong>{t.name}</strong>
+                    <span className={`badge ${t.business ? 'badge-business' : 'badge-private'}`}>{t.business ? 'Tjänst' : 'Privat'}</span>
+                  </div>
+                  {t.default_purpose && <div className="text-sm mt-8">{t.default_purpose}</div>}
+                  <div className="text-xs text-light mt-8">
+                    {[t.default_vehicle_reg, t.default_driver_name].filter(Boolean).join(' · ')}
+                    {(t.default_start_address || t.default_end_address) && (
+                      <> · {t.default_start_address || '?'} → {t.default_end_address || '?'}</>
+                    )}
+                  </div>
+                  <div className="btn-group mt-12">
+                    <button className="btn btn-ghost btn-sm" onClick={() => loadIntoForm(t)}>Redigera</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => deleteTemplate(t.id)}>Ta bort</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 
-      {/* Lista */}
-      <h2 style={{ marginTop:24 }}>Befintliga mallar</h2>
-      {loading ? (
-        <div>Laddar…</div>
-      ) : templates.length === 0 ? (
-        <div>Inga mallar ännu.</div>
-      ) : (
-        <table style={{ width:'100%', borderCollapse:'collapse' }}>
-          <thead>
-            <tr>
-              <th align="left">Namn</th>
-              <th align="left">Typ</th>
-              <th align="left">Syfte</th>
-              <th align="left">Regnr</th>
-              <th align="left">Förare</th>
-              <th align="left">Startadress</th>
-              <th align="left">Slutadress</th>
-              <th align="left">Åtgärd</th>
-            </tr>
-          </thead>
-          <tbody>
-            {templates.map(t => (
-              <tr key={t.id} style={{ borderTop:'1px solid #eee' }}>
-                <td>{t.name}</td>
-                <td>{t.business ? 'Tjänst' : 'Privat'}</td>
-                <td>{t.default_purpose || ''}</td>
-                <td>{t.default_vehicle_reg || ''}</td>
-                <td>{t.default_driver_name || ''}</td>
-                <td>{t.default_start_address || ''}</td>
-                <td>{t.default_end_address || ''}</td>
-                <td style={{ display:'flex', gap:8 }}>
-                  <button onClick={()=> loadIntoForm(t)}>Redigera</button>
-                  <button onClick={()=> deleteTemplate(t.id)} style={{ color:'#b00020' }}>Ta bort</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      <div style={{ marginTop: 12, fontSize: 12, color: '#666' }}>
-        API: <code>{API}</code> — {status}
+      <div className="status-bar">
+        <code>{API}</code> — {status}
       </div>
     </div>
   );

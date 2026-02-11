@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
-// >>> NYTT: hjälpare som alltid skickar cookies <<<
 async function fetchAuth(input: RequestInfo | URL, init: RequestInit = {}) {
   const headers = new Headers(init.headers || {});
   if (!headers.has('Content-Type') && init.body) {
@@ -49,16 +48,19 @@ const fmtLocal = (isoOrNaive: string | null) => {
   const d = parseServerDate(isoOrNaive);
   return d ? d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '';
 };
+const fmtDate = (isoOrNaive: string | null) => {
+  const d = parseServerDate(isoOrNaive);
+  return d ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+};
+const fmtTime = (isoOrNaive: string | null) => {
+  const d = parseServerDate(isoOrNaive);
+  return d ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
+};
 const toLocalInputValue = (isoOrNaive: string | null) => {
   const d = parseServerDate(isoOrNaive);
   if (!d) return '';
   const pad = (n: number) => String(n).padStart(2, '0');
-  const yyyy = d.getFullYear();
-  const mm = pad(d.getMonth() + 1);
-  const dd = pad(d.getDate());
-  const hh = pad(d.getHours());
-  const mi = pad(d.getMinutes());
-  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 const fromLocalInputToISOStringUTC = (val: string | null) => {
   if (!val) return null;
@@ -67,11 +69,12 @@ const fromLocalInputToISOStringUTC = (val: string | null) => {
 };
 
 /* Decimal-safe input: hanterar komma som decimaltecken (mobil, sv_SE) */
-function DecimalInput({ value, onValueChange, ...props }: {
+function DecimalInput({ value, onValueChange, className, ...props }: {
   value: number | null;
   onValueChange: (v: number | null) => void;
   placeholder?: string;
   style?: React.CSSProperties;
+  className?: string;
 }) {
   const [raw, setRaw] = useState(value != null ? String(value) : '');
 
@@ -95,6 +98,7 @@ function DecimalInput({ value, onValueChange, ...props }: {
         const n = parseFloat(v.replace(',', '.'));
         if (!isNaN(n)) onValueChange(n);
       }}
+      className={className}
       {...props}
     />
   );
@@ -105,14 +109,12 @@ export default function Home() {
   const [vehicle, setVehicle] = useState('');
   const [status, setStatus] = useState<string>('');
 
-  // Export: årsväljare
   const [year, setYear] = useState<number>(new Date().getFullYear());
   const years = useMemo(() => {
     const y = new Date().getFullYear();
     return [y - 2, y - 1, y, y + 1, y + 2];
   }, []);
 
-  // Formfält för ny/pågående resa
   const [purpose, setPurpose] = useState<string>('Kundbesök');
   const [business, setBusiness] = useState<boolean>(true);
   const [driver, setDriver] = useState<string>('');
@@ -121,12 +123,10 @@ export default function Home() {
   const [startOdo, setStartOdo] = useState<number | null>(null);
   const [endOdo, setEndOdo] = useState<number | null>(null);
 
-  // UI states
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
 
-  // Redigering
   const [editId, setEditId] = useState<number | null>(null);
   const [editVehicle, setEditVehicle] = useState('');
   const [editPurpose, setEditPurpose] = useState('');
@@ -141,7 +141,6 @@ export default function Home() {
   const [editSaving, setEditSaving] = useState(false);
   const [editDeleting, setEditDeleting] = useState(false);
 
-  // Mallar (dropdown)
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<number | ''>('');
 
@@ -156,9 +155,9 @@ export default function Home() {
       if (!r.ok) throw new Error(`GET /trips ${r.status}`);
       const data = (await r.json()) as Trip[];
       setTrips(data);
-      setStatus(`OK – ${data.length} resor laddade från ${API}`);
+      setStatus(`${data.length} resor`);
     } catch (e: any) {
-      setStatus(`Fel vid laddning av resor: ${e?.message || e}`);
+      setStatus(`Fel: ${e?.message || e}`);
     } finally {
       setLoading(false);
     }
@@ -194,9 +193,7 @@ export default function Home() {
       if (!res.ok) return null;
       const data = await res.json();
       return typeof data.value_km === 'number' ? data.value_km : null;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   };
   const haForceUpdateAndPoll = async (): Promise<number | null> => {
     try {
@@ -207,12 +204,9 @@ export default function Home() {
       if (!res.ok) return null;
       const data = await res.json();
       return typeof data.value_km === 'number' ? data.value_km : null;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   };
 
-  // Start/avsluta
   const startTrip = async () => {
     if (!vehicle.trim()) { alert('Fyll i Regnr först (eller välj).'); return; }
     try {
@@ -232,9 +226,7 @@ export default function Home() {
       setStartOdo(odo ?? null);
       setEndOdo(null);
       await loadTrips();
-    } finally {
-      setStarting(false);
-    }
+    } finally { setStarting(false); }
   };
 
   const finishTrip = async () => {
@@ -248,12 +240,9 @@ export default function Home() {
       if (!r.ok) { const txt = await r.text(); alert(`Kunde inte avsluta resa: ${txt}`); return; }
       setEndOdo(endVal ?? null);
       await loadTrips();
-    } finally {
-      setStopping(false);
-    }
+    } finally { setStopping(false); }
   };
 
-  // Mall → fyll formulär
   const onPickTemplate = (val: string) => {
     if (!val) { setSelectedTemplate(''); return; }
     const id = parseInt(val, 10);
@@ -287,17 +276,9 @@ export default function Home() {
   };
 
   const resetEditor = () => {
-    setEditId(null);
-    setEditVehicle('');
-    setEditPurpose('');
-    setEditBusiness(true);
-    setEditDriver('');
-    setEditStartAddr('');
-    setEditEndAddr('');
-    setEditStartOdo(null);
-    setEditEndOdo(null);
-    setEditStartedAt('');
-    setEditEndedAt('');
+    setEditId(null); setEditVehicle(''); setEditPurpose(''); setEditBusiness(true);
+    setEditDriver(''); setEditStartAddr(''); setEditEndAddr('');
+    setEditStartOdo(null); setEditEndOdo(null); setEditStartedAt(''); setEditEndedAt('');
   };
 
   const saveEdit = async () => {
@@ -338,223 +319,275 @@ export default function Home() {
     } finally { setEditDeleting(false); }
   };
 
-  // Exportlänkar
   const csvUrl = `${API}/exports/journal.csv?year=${year}${vehicle ? `&vehicle=${encodeURIComponent(vehicle)}` : ''}`;
   const pdfUrl = `${API}/exports/journal.pdf?year=${year}${vehicle ? `&vehicle=${encodeURIComponent(vehicle)}` : ''}`;
 
   return (
     <div>
-      {/* Filter + export */}
-      <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-        <label>
-          Regnr (lämna tomt = visa alla)
+      {/* Toolbar: filter + export */}
+      <div className="toolbar">
+        <div className="field">
+          <span className="field-label">Regnr</span>
           <input
+            type="text"
             value={vehicle}
-            onChange={e=> setVehicle(e.target.value)}
-            placeholder="t.ex. ABC123, eller tomt för alla"
-            style={{ marginLeft: 8 }}
+            onChange={e => setVehicle(e.target.value)}
+            placeholder="Alla fordon"
+            style={{ width: 150 }}
           />
-        </label>
-        <label style={{ marginLeft: 8 }}>
-          År
-          <select value={year} onChange={e => setYear(Number(e.target.value))} style={{ marginLeft: 8 }}>
+        </div>
+        <div className="field">
+          <span className="field-label">År</span>
+          <select value={year} onChange={e => setYear(Number(e.target.value))} style={{ width: 100 }}>
             {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
-        </label>
-        <button onClick={()=> window.open(csvUrl, '_blank')}>Exportera CSV</button>
-        <button onClick={()=> window.open(pdfUrl, '_blank')}>Exportera PDF</button>
+        </div>
+        <div className="field" style={{ alignSelf: 'flex-end' }}>
+          <div className="btn-group">
+            <button className="btn btn-ghost btn-sm" onClick={() => window.open(csvUrl, '_blank')}>CSV</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => window.open(pdfUrl, '_blank')}>PDF</button>
+          </div>
+        </div>
       </div>
 
-      {/* Mallval + basfält */}
-      <div style={{ display:'grid', gap:8, marginTop:12, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
-        <label>
-          Mall
-          <select value={String(selectedTemplate)} onChange={e=>onPickTemplate(e.target.value)} style={{ marginLeft: 8 }}>
-            <option value="">– Välj mall –</option>
-            {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-        </label>
-        <label>
-          Syfte
-          <input value={purpose} onChange={e=>setPurpose(e.target.value)} />
-        </label>
-        <label style={{ alignItems:'center', display:'flex', gap:8 }}>
-          Tjänst
-          <input type="checkbox" checked={business} onChange={e=>setBusiness(e.target.checked)} />
-        </label>
-        <label>
-          Förare
-          <input value={driver} onChange={e=>setDriver(e.target.value)} />
-        </label>
-        <label>
-          Startadress
-          <input value={startAddress} onChange={e=>setStartAddress(e.target.value)} />
-        </label>
-        <label>
-          Slutadress
-          <input value={endAddress} onChange={e=>setEndAddress(e.target.value)} />
-        </label>
-      </div>
-
-      {/* Pågående resa */}
-      {activeTrip ? (
-        <div style={{ marginTop: 16, padding: 12, border: '1px solid #ddd', borderRadius: 8, background: '#fffbea' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap: 8, flexWrap:'wrap' }}>
-            <div>
-              <strong>Pågående resa</strong> — {activeTrip.vehicle_reg} • start {fmtLocal(activeTrip.started_at)}
-              <div style={{ color:'#444', marginTop: 6 }}>
-                Förare: <strong>{activeTrip.driver_name || driver || '-'}</strong>
-                {' • '}
-                Start-odo: <strong>{activeTrip.start_odometer_km ?? startOdo ?? '-'}</strong>
-                {(startOdo != null && endOdo != null) && <> • Km (auto): <strong>{Math.round((endOdo - startOdo) * 10) / 10}</strong></>}
-                {(activeTrip.start_address || startAddress) && <> • Startadress: <strong>{activeTrip.start_address || startAddress}</strong></>}
-              </div>
+      {/* Template + form fields */}
+      <div className="card section">
+        <div className="card-header">Resuppgifter</div>
+        <div className="form-grid">
+          <div className="field">
+            <span className="field-label">Mall</span>
+            <select value={String(selectedTemplate)} onChange={e => onPickTemplate(e.target.value)}>
+              <option value="">– Välj mall –</option>
+              {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <span className="field-label">Syfte</span>
+            <input type="text" value={purpose} onChange={e => setPurpose(e.target.value)} />
+          </div>
+          <div className="field">
+            <span className="field-label">Typ</span>
+            <div className="field-row" style={{ minHeight: 44 }}>
+              <input type="checkbox" checked={business} onChange={e => setBusiness(e.target.checked)} id="chk-business" />
+              <label htmlFor="chk-business" style={{ fontSize: 15, cursor: 'pointer' }}>Tjänsteresa</label>
             </div>
-            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-              <label>
-                Slut mätarställning (km)
-                <DecimalInput
-                  value={endOdo}
-                  onValueChange={setEndOdo}
-                  placeholder="t.ex. 12358.1"
-                  style={{ marginLeft: 8 }}
-                />
-              </label>
-              <button onClick={finishTrip} disabled={stopping}>
+          </div>
+          <div className="field">
+            <span className="field-label">Förare</span>
+            <input type="text" value={driver} onChange={e => setDriver(e.target.value)} />
+          </div>
+          <div className="field">
+            <span className="field-label">Startadress</span>
+            <input type="text" value={startAddress} onChange={e => setStartAddress(e.target.value)} />
+          </div>
+          <div className="field">
+            <span className="field-label">Slutadress</span>
+            <input type="text" value={endAddress} onChange={e => setEndAddress(e.target.value)} />
+          </div>
+        </div>
+      </div>
+
+      {/* Active trip / Start trip */}
+      {activeTrip ? (
+        <div className="card card-warning section">
+          <div className="card-header">
+            <span className="badge badge-active">Pågående</span>
+            {activeTrip.vehicle_reg} — start {fmtLocal(activeTrip.started_at)}
+          </div>
+          <div style={{ fontSize: 14, color: '#78350f', marginBottom: 12 }}>
+            Förare: <strong>{activeTrip.driver_name || driver || '–'}</strong>
+            {' · '}Start-odo: <strong>{activeTrip.start_odometer_km ?? startOdo ?? '–'}</strong>
+            {(startOdo != null && endOdo != null) && <> · Km: <strong>{Math.round((endOdo - startOdo) * 10) / 10}</strong></>}
+            {(activeTrip.start_address || startAddress) && <> · {activeTrip.start_address || startAddress}</>}
+          </div>
+          <div className="form-grid" style={{ gridTemplateColumns: '1fr auto' }}>
+            <div className="field">
+              <span className="field-label">Slut mätarställning (km)</span>
+              <DecimalInput value={endOdo} onValueChange={setEndOdo} placeholder="t.ex. 12358,1" />
+            </div>
+            <div className="field" style={{ alignSelf: 'flex-end' }}>
+              <button className="btn btn-danger" onClick={finishTrip} disabled={stopping}>
                 {stopping ? 'Avslutar…' : 'Avsluta resa'}
               </button>
             </div>
           </div>
+          <p className="text-xs text-light mt-8">Lämna tomt för att hämta från Home Assistant.</p>
         </div>
       ) : (
-        <div style={{ marginTop: 16, padding: 12, border: '1px solid #eee', borderRadius: 8 }}>
-          <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
-            <label>
-              Start mätarställning (km)
-              <DecimalInput
-                value={startOdo}
-                onValueChange={setStartOdo}
-                placeholder="t.ex. 12345.6"
-                style={{ marginLeft: 8 }}
-              />
-            </label>
-            <button onClick={startTrip} disabled={starting || !vehicle.trim()}>
-              {starting ? 'Startar…' : 'Starta resa'}
-            </button>
-            <span style={{ color:'#666' }}>Tips: lämna fältet tomt så försöker vi läsa odo från Home Assistant.</span>
+        <div className="card card-success section">
+          <div className="card-header">Starta ny resa</div>
+          <div className="form-grid" style={{ gridTemplateColumns: '1fr auto' }}>
+            <div className="field">
+              <span className="field-label">Start mätarställning (km)</span>
+              <DecimalInput value={startOdo} onValueChange={setStartOdo} placeholder="t.ex. 12345,6" />
+            </div>
+            <div className="field" style={{ alignSelf: 'flex-end' }}>
+              <button className="btn btn-success" onClick={startTrip} disabled={starting || !vehicle.trim()}>
+                {starting ? 'Startar…' : 'Starta resa'}
+              </button>
+            </div>
           </div>
+          <p className="text-xs text-light mt-8">Lämna tomt för att hämta från Home Assistant.</p>
         </div>
       )}
 
-      {/* Redigera resa */}
-      <h2 id="edit-panel" style={{ marginTop: 28, fontSize: 18 }}>Redigera resa</h2>
-      {editId ? (
-        <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 12, background:'#fafafa' }}>
-          <div style={{ display:'grid', gap:8, gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))' }}>
-            <label>
-              Regnr
-              <input value={editVehicle} onChange={e=>setEditVehicle(e.target.value)} />
-            </label>
-            <label>
-              Syfte
-              <input value={editPurpose} onChange={e=>setEditPurpose(e.target.value)} />
-            </label>
-            <label style={{ alignItems:'center', display:'flex', gap:8 }}>
-              Tjänst
-              <input type="checkbox" checked={editBusiness} onChange={e=>setEditBusiness(e.target.checked)} />
-            </label>
-            <label>
-              Förare
-              <input value={editDriver} onChange={e=>setEditDriver(e.target.value)} />
-            </label>
-            <label>
-              Startadress
-              <input value={editStartAddr} onChange={e=>setEditStartAddr(e.target.value)} />
-            </label>
-            <label>
-              Slutadress
-              <input value={editEndAddr} onChange={e=>setEditEndAddr(e.target.value)} />
-            </label>
-            <label>
-              Start mätarställning (km)
-              <DecimalInput
-                value={editStartOdo}
-                onValueChange={setEditStartOdo}
-              />
-            </label>
-            <label>
-              Slut mätarställning (km)
-              <DecimalInput
-                value={editEndOdo}
-                onValueChange={setEditEndOdo}
-              />
-            </label>
-            <label>
-              Starttid
-              <input type="datetime-local" value={editStartedAt} onChange={e=> setEditStartedAt(e.target.value)} />
-            </label>
-            <label>
-              Sluttid
-              <input type="datetime-local" value={editEndedAt} onChange={e=> setEditEndedAt(e.target.value)} />
-            </label>
+      {/* Edit panel */}
+      <div className="section" id="edit-panel">
+        <h2>Redigera resa</h2>
+        {editId ? (
+          <div className="card">
+            <div className="form-grid">
+              <div className="field">
+                <span className="field-label">Regnr</span>
+                <input type="text" value={editVehicle} onChange={e => setEditVehicle(e.target.value)} />
+              </div>
+              <div className="field">
+                <span className="field-label">Syfte</span>
+                <input type="text" value={editPurpose} onChange={e => setEditPurpose(e.target.value)} />
+              </div>
+              <div className="field">
+                <span className="field-label">Typ</span>
+                <div className="field-row" style={{ minHeight: 44 }}>
+                  <input type="checkbox" checked={editBusiness} onChange={e => setEditBusiness(e.target.checked)} id="chk-edit-biz" />
+                  <label htmlFor="chk-edit-biz" style={{ fontSize: 15, cursor: 'pointer' }}>Tjänsteresa</label>
+                </div>
+              </div>
+              <div className="field">
+                <span className="field-label">Förare</span>
+                <input type="text" value={editDriver} onChange={e => setEditDriver(e.target.value)} />
+              </div>
+              <div className="field">
+                <span className="field-label">Startadress</span>
+                <input type="text" value={editStartAddr} onChange={e => setEditStartAddr(e.target.value)} />
+              </div>
+              <div className="field">
+                <span className="field-label">Slutadress</span>
+                <input type="text" value={editEndAddr} onChange={e => setEditEndAddr(e.target.value)} />
+              </div>
+              <div className="field">
+                <span className="field-label">Start mätarställning</span>
+                <DecimalInput value={editStartOdo} onValueChange={setEditStartOdo} />
+              </div>
+              <div className="field">
+                <span className="field-label">Slut mätarställning</span>
+                <DecimalInput value={editEndOdo} onValueChange={setEditEndOdo} />
+              </div>
+              <div className="field">
+                <span className="field-label">Starttid</span>
+                <input type="datetime-local" value={editStartedAt} onChange={e => setEditStartedAt(e.target.value)} />
+              </div>
+              <div className="field">
+                <span className="field-label">Sluttid</span>
+                <input type="datetime-local" value={editEndedAt} onChange={e => setEditEndedAt(e.target.value)} />
+              </div>
+            </div>
+            <div className="btn-group mt-16">
+              <button className="btn btn-primary" onClick={saveEdit} disabled={editSaving}>
+                {editSaving ? 'Sparar…' : 'Spara ändringar'}
+              </button>
+              <button className="btn btn-ghost" onClick={resetEditor}>Avbryt</button>
+              <button className="btn btn-danger" onClick={deleteEdit} disabled={editDeleting}>
+                {editDeleting ? 'Tar bort…' : 'Ta bort'}
+              </button>
+            </div>
           </div>
-          <div style={{ display:'flex', gap:8, marginTop:12 }}>
-            <button onClick={saveEdit} disabled={editSaving}>{editSaving ? 'Sparar…' : 'Spara ändringar'}</button>
-            <button type="button" onClick={resetEditor}>Avbryt</button>
-            <button type="button" onClick={deleteEdit} disabled={editDeleting} style={{ color:'#b00020' }}>
-              {editDeleting ? 'Tar bort…' : 'Ta bort'}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div style={{ color:'#666' }}>Klicka “Redigera” på en resa i listan nedan för att ändra eller ta bort.</div>
-      )}
+        ) : (
+          <p className="text-muted">Klicka &quot;Redigera&quot; på en resa nedan.</p>
+        )}
+      </div>
 
-      {/* Lista resor */}
-      <h2 style={{ marginTop: 28, fontSize: 18 }}>Resor</h2>
-      {loading ? (
-        <div>Laddar…</div>
-      ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th align="left">Start</th>
-              <th align="left">Slut</th>
-              <th align="left">Regnr</th>
-              <th align="left">Förare</th>
-              <th align="left">Startadress</th>
-              <th align="left">Slutadress</th>
-              <th align="left">Start-odo</th>
-              <th align="left">Slut-odo</th>
-              <th align="left">Km</th>
-              <th align="left">Syfte</th>
-              <th align="left">Typ</th>
-              <th align="left">Åtgärd</th>
-            </tr>
-          </thead>
-          <tbody>
-            {trips.map(t => (
-              <tr key={t.id} style={{ borderTop: '1px solid #eee' }}>
-                <td>{fmtLocal(t.started_at)}</td>
-                <td>{t.ended_at ? fmtLocal(t.ended_at) : <em>Pågående…</em>}</td>
-                <td>{t.vehicle_reg}</td>
-                <td>{t.driver_name || ''}</td>
-                <td>{t.start_address || ''}</td>
-                <td>{t.end_address || ''}</td>
-                <td>{t.start_odometer_km ?? '-'}</td>
-                <td>{t.ended_at ? (t.end_odometer_km ?? '-') : <em>–</em>}</td>
-                <td>{t.ended_at ? (t.distance_km ?? '-') : <em>Pågår</em>}</td>
-                <td>{t.purpose || ''}</td>
-                <td>{t.business ? 'Tjänst' : 'Privat'}</td>
-                <td><button onClick={()=> loadTripIntoEditor(t)}>Redigera</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      {/* Trip list */}
+      <div className="section">
+        <h2>Resor {!loading && <span className="text-light text-sm">({trips.length})</span>}</h2>
 
-      <div style={{ marginTop: 12, fontSize: 12, color: '#666' }}>
-        API: <code>{API}</code> — {status}
+        {loading ? (
+          <p className="text-muted">Laddar…</p>
+        ) : (
+          <>
+            {/* Desktop table */}
+            <div className="trip-list-desktop">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Start</th>
+                    <th>Slut</th>
+                    <th>Regnr</th>
+                    <th>Förare</th>
+                    <th>Startadress</th>
+                    <th>Slutadress</th>
+                    <th>Start-odo</th>
+                    <th>Slut-odo</th>
+                    <th>Km</th>
+                    <th>Syfte</th>
+                    <th>Typ</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trips.map(t => (
+                    <tr key={t.id}>
+                      <td>{fmtLocal(t.started_at)}</td>
+                      <td>{t.ended_at ? fmtLocal(t.ended_at) : <span className="badge badge-active">Pågår</span>}</td>
+                      <td><strong>{t.vehicle_reg}</strong></td>
+                      <td>{t.driver_name || ''}</td>
+                      <td>{t.start_address || ''}</td>
+                      <td>{t.end_address || ''}</td>
+                      <td>{t.start_odometer_km ?? '–'}</td>
+                      <td>{t.ended_at ? (t.end_odometer_km ?? '–') : '–'}</td>
+                      <td><strong>{t.ended_at ? (t.distance_km ?? '–') : '–'}</strong></td>
+                      <td>{t.purpose || ''}</td>
+                      <td><span className={`badge ${t.business ? 'badge-business' : 'badge-private'}`}>{t.business ? 'Tjänst' : 'Privat'}</span></td>
+                      <td><button className="btn btn-ghost btn-sm" onClick={() => loadTripIntoEditor(t)}>Redigera</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="trip-list-mobile">
+              {trips.map(t => (
+                <div key={t.id} className={`trip-card ${!t.ended_at ? 'trip-card-active' : ''}`}>
+                  <div className="trip-card-row">
+                    <span className="trip-card-date">
+                      {fmtDate(t.started_at)} {fmtTime(t.started_at)}
+                      {t.ended_at ? ` → ${fmtTime(t.ended_at)}` : ''}
+                    </span>
+                    <span className={`badge ${t.business ? 'badge-business' : 'badge-private'}`}>
+                      {t.business ? 'Tjänst' : 'Privat'}
+                    </span>
+                  </div>
+                  <div className="trip-card-row">
+                    <span className="trip-card-km">
+                      {t.ended_at
+                        ? (t.distance_km != null ? `${t.distance_km} km` : '–')
+                        : <span className="badge badge-active">Pågår</span>
+                      }
+                    </span>
+                    <span className="trip-card-detail">{t.vehicle_reg}</span>
+                  </div>
+                  {t.purpose && <div className="trip-card-purpose">{t.purpose}</div>}
+                  {(t.start_address || t.end_address) && (
+                    <div className="trip-card-addresses">
+                      {t.start_address || '?'} → {t.end_address || '?'}
+                    </div>
+                  )}
+                  <div className="trip-card-row" style={{ marginTop: 8 }}>
+                    <span className="text-xs text-light">
+                      {t.start_odometer_km ?? '–'} → {t.ended_at ? (t.end_odometer_km ?? '–') : '–'}
+                      {t.driver_name ? ` · ${t.driver_name}` : ''}
+                    </span>
+                    <button className="btn btn-ghost btn-sm" onClick={() => loadTripIntoEditor(t)}>Redigera</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="status-bar">
+        <code>{API}</code> — {status}
       </div>
     </div>
   );
