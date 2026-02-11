@@ -1,0 +1,60 @@
+version: "3.3"
+
+# Produktions-setup med färdigbyggda images från ghcr.io.
+# Kräver INGEN kloning av repot – ladda ner denna fil + .env.example.
+#
+# Snabbstart:
+#   1. cp .env.example .env && redigera .env
+#   2. docker compose -f docker-compose.prod.yml up -d
+#      (SQLite – ingen extra DB)
+#
+#   Vill du PostgreSQL istället:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.postgres.yml up -d
+
+services:
+  api:
+    image: ghcr.io/johanostlund/korjournal-api:latest
+    container_name: korjournal-api
+    restart: unless-stopped
+    environment:
+      # Lämna DATABASE_URL tom för SQLite, eller sätt för extern DB:
+      # DATABASE_URL: "mysql+pymysql://${NAS_DB_USER}:${NAS_DB_PASS}@${NAS_DB_HOST}:${NAS_DB_PORT}/${NAS_DB_NAME}?charset=utf8mb4"
+      CORS_ORIGINS: "http://${SERVER_HOST:?set SERVER_HOST}:${WEB_PORT:-3001},http://localhost:${WEB_PORT:-3001}"
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      ENV: ${ENV:-production}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?set ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      HA_VERIFY_SSL: ${HA_VERIFY_SSL:-true}
+      HA_BASE_URL: ${HA_BASE_URL:-}
+      HA_TOKEN: ${HA_TOKEN:-}
+      HA_ODOMETER_ENTITY: ${HA_ODOMETER_ENTITY:-}
+      HA_FORCE_DOMAIN: ${HA_FORCE_DOMAIN:-kia_uvo}
+      HA_FORCE_SERVICE: ${HA_FORCE_SERVICE:-force_update}
+    volumes:
+      - api_data:/app/data
+    ports:
+      - "${API_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request,sys; sys.exit(0) if urllib.request.urlopen(\"http://localhost:8080/health\").getcode()==200 else sys.exit(1)'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  web:
+    image: ghcr.io/johanostlund/korjournal-web:latest
+    container_name: korjournal-web
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: "http://${SERVER_HOST:?set SERVER_HOST}:${API_PORT:-8080}"
+    ports:
+      - "${WEB_PORT:-3001}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  api_data:
