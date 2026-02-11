@@ -66,6 +66,40 @@ const fromLocalInputToISOStringUTC = (val: string | null) => {
   return isNaN(d.getTime()) ? null : d.toISOString();
 };
 
+/* Decimal-safe input: hanterar komma som decimaltecken (mobil, sv_SE) */
+function DecimalInput({ value, onValueChange, ...props }: {
+  value: number | null;
+  onValueChange: (v: number | null) => void;
+  placeholder?: string;
+  style?: React.CSSProperties;
+}) {
+  const [raw, setRaw] = useState(value != null ? String(value) : '');
+
+  useEffect(() => {
+    const cur = parseFloat(raw.replace(',', '.'));
+    if (value == null) {
+      if (raw !== '') setRaw('');
+    } else if (isNaN(cur) || Math.abs(cur - value) > 0.0001) {
+      setRaw(String(value));
+    }
+  }, [value]);
+
+  return (
+    <input
+      inputMode="decimal"
+      value={raw}
+      onChange={e => {
+        const v = e.target.value;
+        setRaw(v);
+        if (v === '') { onValueChange(null); return; }
+        const n = parseFloat(v.replace(',', '.'));
+        if (!isNaN(n)) onValueChange(n);
+      }}
+      {...props}
+    />
+  );
+}
+
 export default function Home() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [vehicle, setVehicle] = useState('');
@@ -379,10 +413,9 @@ export default function Home() {
             <div style={{ display:'flex', gap:8, alignItems:'center' }}>
               <label>
                 Slut mätarställning (km)
-                <input
-                  inputMode="decimal"
-                  value={endOdo ?? ''}
-                  onChange={e=> setEndOdo(e.target.value === '' ? null : Number(e.target.value))}
+                <DecimalInput
+                  value={endOdo}
+                  onValueChange={setEndOdo}
                   placeholder="t.ex. 12358.1"
                   style={{ marginLeft: 8 }}
                 />
@@ -398,10 +431,9 @@ export default function Home() {
           <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap' }}>
             <label>
               Start mätarställning (km)
-              <input
-                inputMode="decimal"
-                value={startOdo ?? ''}
-                onChange={e=> setStartOdo(e.target.value === '' ? null : Number(e.target.value))}
+              <DecimalInput
+                value={startOdo}
+                onValueChange={setStartOdo}
                 placeholder="t.ex. 12345.6"
                 style={{ marginLeft: 8 }}
               />
@@ -445,18 +477,16 @@ export default function Home() {
             </label>
             <label>
               Start mätarställning (km)
-              <input
-                inputMode="decimal"
-                value={editStartOdo ?? ''}
-                onChange={e=> setEditStartOdo(e.target.value === '' ? null : Number(e.target.value))}
+              <DecimalInput
+                value={editStartOdo}
+                onValueChange={setEditStartOdo}
               />
             </label>
             <label>
               Slut mätarställning (km)
-              <input
-                inputMode="decimal"
-                value={editEndOdo ?? ''}
-                onChange={e=> setEditEndOdo(e.target.value === '' ? null : Number(e.target.value))}
+              <DecimalInput
+                value={editEndOdo}
+                onValueChange={setEditEndOdo}
               />
             </label>
             <label>
