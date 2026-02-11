@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
-// >>> NYTT: hjälpare som alltid skickar cookies <<<
 async function fetchAuth(input: RequestInfo | URL, init: RequestInit = {}) {
   const headers = new Headers(init.headers || {});
   if (!headers.has('Content-Type') && init.body) {
@@ -49,7 +48,7 @@ export default function SettingsPage() {
       setForceDataJson(s.force_data_json ? JSON.stringify(s.force_data_json) : '');
       setStatus('Inställningar laddade.');
     } catch (e: any) {
-      setStatus(`Fel vid laddning: ${e?.message || e}`);
+      setStatus(`Fel: ${e?.message || e}`);
     } finally {
       setLoading(false);
     }
@@ -73,7 +72,6 @@ export default function SettingsPage() {
     if (haTokenInput.trim().length > 0) {
       payload.ha_token = haTokenInput.trim();
     }
-
     const r = await fetchAuth(`${API}/settings`, {
       method: 'PUT',
       body: JSON.stringify(payload),
@@ -117,68 +115,67 @@ export default function SettingsPage() {
     <div>
       <h1>Inställningar</h1>
 
-      <div style={{ display:'grid', gap:8, maxWidth: 520 }}>
-        <label>
-          Home Assistant URL
-          <input
-            placeholder="t.ex. https://ha.example.com"
-            value={haUrl}
-            onChange={e=>setHaUrl(e.target.value)}
-          />
-        </label>
-
-        <label>
-          Odometer Entity-ID
-          <input
-            placeholder="sensor.kia_niro_odometer"
-            value={haEntity}
-            onChange={e=>setHaEntity(e.target.value)}
-          />
-        </label>
-
-        <label>
-          HA Token (lagras säkert)
-          <input
-            type="password"
-            placeholder={haTokenAlreadySet ? '••••••••' : 'klistra in token'}
-            value={haTokenInput}
-            onChange={e=>setHaTokenInput(e.target.value)}
-          />
-          <div style={{ fontSize:12, color:'#666' }}>
-            {haTokenAlreadySet
-              ? 'En token finns redan lagrad. Lämna tomt för att behålla.'
-              : 'Ingen token lagrad ännu.'}
+      {/* Home Assistant */}
+      <div className="card">
+        <div className="card-header">Home Assistant</div>
+        <div className="form-grid">
+          <div className="field">
+            <span className="field-label">HA URL</span>
+            <input type="text" placeholder="https://ha.example.com" value={haUrl} onChange={e => setHaUrl(e.target.value)} />
           </div>
-        </label>
-
-        <label>
-          Force domain (t.ex. kia_uvo)
-          <input value={forceDomain} onChange={e=>setForceDomain(e.target.value)} />
-        </label>
-        <label>
-          Force service (t.ex. force_update)
-          <input value={forceService} onChange={e=>setForceService(e.target.value)} />
-        </label>
-        <label>
-          Force data JSON
-          <textarea
-            rows={4}
-            placeholder='{"vin":"..."}'
-            value={forceDataJson}
-            onChange={e=>setForceDataJson(e.target.value)}
-          />
-        </label>
-
-        <div style={{ display:'flex', gap:8, marginTop:8 }}>
-          <button onClick={saveSettings} disabled={loading}>Spara</button>
-          <button onClick={loadSettings} disabled={loading}>Ladda om</button>
-          <button onClick={testPoll} type="button">Testa Poll</button>
-          <button onClick={testForce} type="button">Testa Force</button>
+          <div className="field">
+            <span className="field-label">Odometer Entity-ID</span>
+            <input type="text" placeholder="sensor.kia_niro_odometer" value={haEntity} onChange={e => setHaEntity(e.target.value)} />
+          </div>
+          <div className="field">
+            <span className="field-label">HA Token</span>
+            <input
+              type="password"
+              placeholder={haTokenAlreadySet ? '********' : 'Klistra in token'}
+              value={haTokenInput}
+              onChange={e => setHaTokenInput(e.target.value)}
+            />
+            <span className="field-hint">
+              {haTokenAlreadySet ? 'Token finns lagrad. Lämna tomt för att behålla.' : 'Ingen token lagrad.'}
+            </span>
+          </div>
         </div>
       </div>
 
-      <div style={{ marginTop: 12, fontSize: 12, color: '#666' }}>
-        API: <code>{API}</code> — {status}
+      {/* Force update */}
+      <div className="card section">
+        <div className="card-header">Force Update</div>
+        <div className="form-grid">
+          <div className="field">
+            <span className="field-label">Domain</span>
+            <input type="text" placeholder="kia_uvo" value={forceDomain} onChange={e => setForceDomain(e.target.value)} />
+          </div>
+          <div className="field">
+            <span className="field-label">Service</span>
+            <input type="text" placeholder="force_update" value={forceService} onChange={e => setForceService(e.target.value)} />
+          </div>
+          <div className="field" style={{ gridColumn: '1 / -1' }}>
+            <span className="field-label">Data JSON</span>
+            <textarea
+              rows={3}
+              placeholder='{"vin":"..."}'
+              value={forceDataJson}
+              onChange={e => setForceDataJson(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="btn-group section">
+        <button className="btn btn-primary" onClick={saveSettings} disabled={loading}>Spara</button>
+        <button className="btn btn-ghost" onClick={loadSettings} disabled={loading}>Ladda om</button>
+        <button className="btn btn-ghost" onClick={testPoll}>Testa Poll</button>
+        <button className="btn btn-ghost" onClick={testForce}>Testa Force</button>
+      </div>
+
+      <div className="status-bar">
+        <code>{API}</code> — {status}
       </div>
     </div>
   );

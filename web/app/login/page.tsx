@@ -16,16 +16,15 @@ export default function LoginPage() {
       const r = await fetch(`${API}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',               // ⬅️ viktigt för cookie
+        credentials: 'include',
         body: JSON.stringify({ username, password }),
       });
       if (!r.ok) {
         const txt = await r.text();
         throw new Error(txt || 'Login failed');
       }
-      // Vid lyckad inloggning, gå till startsidan
       window.location.href = '/';
-    } catch (e:any) {
+    } catch (e: any) {
       setErr(e.message || 'Fel vid inloggning');
     } finally {
       setBusy(false);
@@ -33,17 +32,28 @@ export default function LoginPage() {
   };
 
   return (
-    <div style={{ maxWidth: 360, margin: '40px auto', padding: 16, border: '1px solid #eee', borderRadius: 8 }}>
-      <h1>Logga in</h1>
-      <div style={{ display:'grid', gap:8 }}>
-        <label>Användarnamn
-          <input value={username} onChange={e=>setUsername(e.target.value)} />
-        </label>
-        <label>Lösenord
-          <input type="password" value={password} onChange={e=>setPassword(e.target.value)} />
-        </label>
-        <button onClick={doLogin} disabled={busy}>{busy ? 'Loggar in…' : 'Logga in'}</button>
-        {err && <div style={{ color:'#b00020' }}>{err}</div>}
+    <div className="login-wrapper">
+      <div className="card login-card">
+        <h1>Körjournal</h1>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div className="field">
+            <span className="field-label">Användarnamn</span>
+            <input type="text" value={username} onChange={e => setUsername(e.target.value)} autoFocus />
+          </div>
+          <div className="field">
+            <span className="field-label">Lösenord</span>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && doLogin()}
+            />
+          </div>
+          <button className="btn btn-primary" onClick={doLogin} disabled={busy} style={{ width: '100%' }}>
+            {busy ? 'Loggar in…' : 'Logga in'}
+          </button>
+          {err && <div className="alert-error">{err}</div>}
+        </div>
       </div>
     </div>
   );
