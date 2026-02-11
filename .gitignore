@@ -1,9 +1,12 @@
 # Ignorera lokala miljöfiler
 .env
+.env.*
+!.env.example
 
 # Python
 __pycache__/
 *.pyc
+*.save
 
 # Node
 node_modules/
@@ -12,3 +15,6 @@ node_modules/
 # Docker
 *.log
 docker-data/
+
+# OS
+.DS_Store

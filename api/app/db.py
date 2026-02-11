@@ -12,14 +12,14 @@ if not DATABASE_URL:
     os.makedirs("/app/data", exist_ok=True)
     DATABASE_URL = "sqlite:////app/data/app.db"
 
-is_mysql = DATABASE_URL.startswith("mysql+")
+is_production_db = DATABASE_URL.startswith("mysql+") or DATABASE_URL.startswith("postgresql")
 
 engine = create_engine(
     DATABASE_URL,
     poolclass=QueuePool,
     pool_pre_ping=True,
-    pool_size=10 if is_mysql else 5,
-    max_overflow=10 if is_mysql else 5,
+    pool_size=10 if is_production_db else 5,
+    max_overflow=10 if is_production_db else 5,
     future=True,
 )
 

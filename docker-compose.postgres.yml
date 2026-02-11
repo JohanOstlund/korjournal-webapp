@@ -1,0 +1,35 @@
+version: "3.3"
+
+# PostgreSQL allt-i-ett setup
+# Användning: docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
+#
+# Kräver dessa env-variabler (se .env.example):
+#   DB_USER, DB_PASS, DB_NAME
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: korjournal-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-korjournal}
+      POSTGRES_USER: ${DB_USER:?set DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS:?set DB_PASS}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  api:
+    environment:
+      DATABASE_URL: "postgresql+psycopg2://${DB_USER}:${DB_PASS}@db:5432/${DB_NAME:-korjournal}"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data:
