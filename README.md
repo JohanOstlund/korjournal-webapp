@@ -1,193 +1,179 @@
-# Körjournal Webapp
+# Korjournal Webapp
 
-En enkel och stabil körjournal med **Home Assistant-integration**.
+En fullständig körjournal med **fleranvändarsupport**, **resmallar**, **milersättningsberäkning** och **Home Assistant-integration**.
 
-**Senaste versioner:**  
-- v1.5.0 – Förbättrad PDF-rapport, månadssummor & totalsumma, **PDF kräver year** (breaking)  
-- v1.4.0 – HA force update/poll-endpoint, `/trips/start` & `/trips/finish`, PAT-förbättringar, rate limiting, structured logging
-
----
-
-## 🚀 Funktionalitet
-
-- Skapa resor med start-/sluttid, adresser, mätarställning (start/slut) och automatisk distans.
-- Går att redigera redan skapade/pågående resor.
-- Typer: **Tjänst** eller **Privat**, syfte, förare och registreringsnummer.
-- Lista resor sorterade per datum.
-- Rimlighetskontroll: max 2000 km/resa.
-- **Exportera PDF per år** med månadssummor och totalsumma. **Kräver `?year=`** (sedan v1.5.0).
-- Home Assistant-integration inkl. **force-update-and-poll** av mätarställning.
-
-### Kända begränsningar
-- Går **inte** att låsa/stänga resor. 
+**Senaste versioner:**
+- v2.1.0 – Milersättnings- och reseavdragsberäkning (`/reseavdrag`)
+- v2.0.0 – Helt ny responsiv frontend, mobilanpassad design, CSS design system
 
 ---
 
-## 🧱 Arkitektur
+## Funktionalitet
 
-- **API:** FastAPI (Python)
-- **DB:** MariaDB (prod) / SQLite (dev)
-- **Frontend:** Webklient (`/web`)
-- **Reverse proxy:** Valfritt (t.ex. Nginx)
-- **Distribuering:** Docker Compose
+- **Fleranvändarsupport** med admin-roll och användarhantering.
+- Skapa resor med start-/sluttid, adresser, mätarställning och automatisk distansberäkning.
+- Starta och avsluta resor i två steg (`/trips/start` + `/trips/finish`).
+- Typer: **Tjänst** eller **Privat**, med syfte, förare och registreringsnummer.
+- **Resmallar** – spara och återanvänd vanliga resor.
+- **Milersättning/reseavdrag** – beräkna avdrag enligt Skatteverkets regler (egen bil, förmånsbil el/fossil).
+- Exportera **PDF** och **CSV** per år med månadssummor och totalsumma.
+- **Home Assistant-integration** med force-update av mätarställning (konfigurerbart per användare).
+- **Personal Access Tokens (PAT)** för API-åtkomst från automationer.
+- Rate limiting, structured logging och bcrypt-hashade lösenord.
 
 ---
 
-## 📦 Installation (Docker)
+## Arkitektur
 
-1) Klona:
+| Komponent | Teknologi |
+|-----------|-----------|
+| **API** | FastAPI (Python 3.12) |
+| **Frontend** | Next.js 14 + React 18 |
+| **Databas** | MariaDB, PostgreSQL eller SQLite |
+| **Distribuering** | Docker Compose |
+
+---
+
+## Installation (Docker)
+
+### 1. Klona
+
 ```bash
-git clone https://github.com/<user>/<repo>.git
-cd <repo>
+git clone https://github.com/JohanOstlund/korjournal-webapp.git
+cd korjournal-webapp
 ```
 
-2) Skapa `.env` (se `.env.example` i repot):
-```env
-# === Timezone ===
-TZ=Europe/Stockholm
+### 2. Skapa `.env`
 
-# === DB (MariaDB) ===
-MYSQL_HOST=db
-MYSQL_PORT=3306
-MYSQL_DATABASE=korjournal
-MYSQL_USER=korj
-MYSQL_PASSWORD=changeme
-MYSQL_ROOT_PASSWORD=rootchangeme
-
-# === API ===
-API_PORT=8000
-SECRET_KEY=please_change_me_min_64_chars
-ACCESS_TOKEN_EXPIRE_MINUTES=43200
-CORS_ORIGINS=http://localhost:3000
-
-# === Home Assistant (valfritt) ===
-HA_URL=http://homeassistant.local:8123
-HA_TOKEN=<ha_long_lived_token>
-
-# === Bootstrap admin (om init-skript används) ===
-ADMIN_USERNAME=admin@korjournal.local
-ADMIN_PASSWORD=ChangeMe!123
+```bash
+cp .env.example .env
+# Redigera .env med dina värden
 ```
 
-3) Starta:
+Se `.env.example` för dokumentation av alla variabler.
+
+### 3. Välj databas och starta
+
+Det finns tre alternativ:
+
+**Extern MariaDB** (t.ex. NAS) – fyll i `NAS_DB_*`-variablerna i `.env`:
 ```bash
 docker compose up -d
-# (om migrations inte körs automatiskt)
-docker exec -it korjournal-api alembic upgrade head
 ```
 
-4) Öppna webben:
+**PostgreSQL i Docker** – fyll i `DB_USER`/`DB_PASS` i `.env`:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d
 ```
-http://localhost:3000
+
+**SQLite** (enklast, bra för test) – kommentera bort `DATABASE_URL` i `docker-compose.yml`:
+```bash
+docker compose up -d
 ```
+
+### 4. Öppna webben
+
+```
+http://<SERVER_HOST>:3001
+```
+
+Admin-användare skapas automatiskt vid första start utifrån `ADMIN_USERNAME` / `ADMIN_PASSWORD` i `.env`.
 
 ---
 
-## 🔐 Autentisering
+## Autentisering
 
-- **Endpoint:** `POST /auth/token`
-- **Body:**
-```json
-{"username":"<email>","password":"<password>"}
+### Logga in (cookie-baserat, används av webben)
+```bash
+curl -sX POST "$BASE/auth/login" -H "$CT" \
+  -d '{"username":"admin","password":"ditt_lösenord"}'
 ```
-- **Svar:**
-```json
-{"access_token":"<JWT/PAT>","token_type":"bearer","expires_in":2592000}
+
+### Hämta token (JWT, för API-anrop)
+```bash
+curl -sX POST "$BASE/auth/token" -H "$CT" \
+  -d '{"username":"admin","password":"ditt_lösenord"}'
 ```
-- **Header i skyddade anrop:** `Authorization: Bearer <token>`
+
+**Svar:**
+```json
+{"access_token":"<JWT>","token_type":"bearer","expires_in":86400}
+```
+
+**Skyddade anrop:** `Authorization: Bearer <token>`
 
 ---
 
-## 🧪 API – cURL-exempel
+## API-översikt
 
-> Lokalt i Docker: `BASE="http://localhost:8000"`
+> `BASE="http://localhost:8080"` (default API-port)
 
 ```bash
-BASE="http://localhost:8000"
 TOKEN="<DIN_TOKEN>"
 AUTH="Authorization: Bearer $TOKEN"
 CT="Content-Type: application/json"
 ```
 
-### Hälsa på
-```bash
-curl -s "$BASE/health"
-```
+### Resor
 
-### Logga in
-```bash
-curl -sX POST "$BASE/auth/token" -H "$CT" \
-  -d '{"username":"admin@korjournal.local","password":"ChangeMe!123"}'
-```
+| Metod | Endpoint | Beskrivning |
+|-------|----------|-------------|
+| `POST` | `/trips` | Skapa resa (komplett) |
+| `POST` | `/trips/start` | Starta resa |
+| `POST` | `/trips/finish` | Avsluta pågående resa |
+| `GET` | `/trips` | Lista resor (`?limit=&offset=&year=&month=`) |
+| `PUT` | `/trips/{id}` | Uppdatera resa |
+| `DELETE` | `/trips/{id}` | Ta bort resa |
 
-### Skapa resa (direkt)
-```bash
-curl -sX POST "$BASE/trips" -H "$AUTH" -H "$CT" -d '{
-  "date": "2025-10-25",
-  "startTime": "2025-10-25T08:00:00Z",
-  "endTime": "2025-10-25T09:15:00Z",
-  "startAddress": "Jakobsberg",
-  "startCity": "Järfälla",
-  "endAddress": "Norrtälje Sjukhus",
-  "endCity": "Norrtälje",
-  "startOdo": 10000,
-  "endOdo": 10085,
-  "type": "Tjänst",
-  "purpose": "Pendling",
-  "driverName": "Johan Ö",
-  "carReg": "ABC123"
-}'
-```
+### Mallar
 
-### Starta/avsluta resa
-```bash
-# Start
-curl -sX POST "$BASE/trips/start" -H "$AUTH" -H "$CT" -d '{
-  "date": "2025-10-25",
-  "startTime": "2025-10-25T08:00:00Z",
-  "startAddress": "Jakobsberg",
-  "startCity": "Järfälla",
-  "startOdo": 10000,
-  "type": "Tjänst",
-  "purpose": "Pendling",
-  "driverName": "Johan Ö",
-  "carReg": "ABC123"
-}'
+| Metod | Endpoint | Beskrivning |
+|-------|----------|-------------|
+| `GET` | `/templates` | Lista mallar |
+| `POST` | `/templates` | Skapa mall |
+| `PUT` | `/templates/{id}` | Uppdatera mall |
+| `DELETE` | `/templates/{id}` | Ta bort mall |
 
-# Finish
-curl -sX POST "$BASE/trips/finish" -H "$AUTH" -H "$CT" -d '{
-  "endTime": "2025-10-25T09:15:00Z",
-  "endAddress": "Norrtälje Sjukhus",
-  "endCity": "Norrtälje",
-  "endOdo": 10085
-}'
-```
+### Export
 
-### Lista/Hämta/Radera
-```bash
-curl -s "$BASE/trips?limit=50&offset=0" -H "$AUTH"
-curl -s "$BASE/trips/123" -H "$AUTH"
-curl -sX DELETE "$BASE/trips/123" -H "$AUTH"
-```
+| Metod | Endpoint | Beskrivning |
+|-------|----------|-------------|
+| `GET` | `/exports/journal.pdf?year=2025` | PDF-rapport |
+| `GET` | `/exports/journal.csv?year=2025` | CSV-export |
 
-### Exportera PDF **(kräver year)**
-```bash
-curl -s "$BASE/exports/journal.pdf?year=2025" -H "$AUTH" -o "journal_2025.pdf"
-```
+### Admin
 
-### Home Assistant – force update/poll
-```bash
-curl -sX POST "$BASE/integrations/home-assistant/force-update-and-poll" -H "$AUTH"
-```
+| Metod | Endpoint | Beskrivning |
+|-------|----------|-------------|
+| `GET` | `/admin/users` | Lista användare |
+| `POST` | `/admin/users` | Skapa användare |
+| `DELETE` | `/admin/users/{id}` | Ta bort användare |
+
+### Home Assistant
+
+| Metod | Endpoint | Beskrivning |
+|-------|----------|-------------|
+| `POST` | `/integrations/home-assistant/poll` | Hämta mätarställning |
+| `POST` | `/integrations/home-assistant/force-update-and-poll` | Force update + hämta |
+| `GET` | `/integrations/home-assistant/settings` | Hämta HA-inställningar |
+| `PUT` | `/integrations/home-assistant/settings` | Uppdatera HA-inställningar |
+
+### Övrigt
+
+| Metod | Endpoint | Beskrivning |
+|-------|----------|-------------|
+| `GET` | `/health` | Hälsokontroll (inkl. DB) |
+| `POST` | `/auth/change-password` | Byt lösenord |
+| `GET` | `/auth/me` | Aktuell användare |
 
 ---
 
-## 🏠 Home Assistant (exempel)
+## Home Assistant (exempel)
 
 `secrets.yaml`:
 ```yaml
-korjournal_token: <DIN_TOKEN>
-korjournal_base: http://localhost:8000
+korjournal_token: <DIN_PAT_TOKEN>
+korjournal_base: http://<SERVER_HOST>:8080
 ```
 
 `configuration.yaml`:
@@ -211,9 +197,7 @@ rest_command:
         "startTime": "{{ now().isoformat() }}",
         "endTime": "{{ (now() + timedelta(hours=1)).isoformat() }}",
         "startAddress": "{{ start_addr }}",
-        "startCity": "{{ start_city }}",
         "endAddress": "{{ end_addr }}",
-        "endCity": "{{ end_city }}",
         "startOdo": {{ start_odo }},
         "endOdo": {{ end_odo }},
         "type": "Tjänst",
@@ -223,17 +207,20 @@ rest_command:
       }
 ```
 
----
-
-## ⚙️ Felsökning
-
-- **PDF fel utan `year`** → krävs `?year=`.  
-- **401 Unauthorized** → kontrollera `Authorization: Bearer <token>`.  
-- **CORS** → lägg till front-origin i `CORS_ORIGINS`.  
-- **DB/migration** → `alembic upgrade head`.  
-- **HA** → giltig `HA_TOKEN` + nätverksåtkomst från API:t.
+HA-inställningar (URL, token, odometer-entity) kan konfigureras per användare i webbens **Settings**-sida.
 
 ---
 
-## 📜 Licens
+## Felsökning
+
+- **401 Unauthorized** – kontrollera `Authorization: Bearer <token>`.
+- **CORS-fel** – lägg till frontend-origin i `CORS_ORIGINS` i `.env`.
+- **DB/migration** – `docker exec -it korjournal-api alembic upgrade head`.
+- **HA-integration** – kontrollera `HA_TOKEN` och nätverksåtkomst från API-containern.
+- **PDF kräver year** – `/exports/journal.pdf?year=2025`.
+
+---
+
+## Licens
+
 MIT
