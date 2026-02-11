@@ -68,8 +68,11 @@ const SCHABLON_LABEL: Record<string, string> = {
   formansbil_el: 'Förmånsbil elbil (9,50 kr/mil)',
   formansbil_fossil: 'Förmånsbil fossil (12 kr/mil)',
 };
-const AVDRAGSGRANS = (year: number) => year >= 2026 ? 15_000 : 11_000;
-const SKIKTGRANS = (year: number) => year >= 2026 ? 643_000 : 625_800;
+// Defaults per year — user can override in settings
+const DEFAULT_AVDRAGSGRANS_2025 = 11_000;
+const DEFAULT_AVDRAGSGRANS_2026 = 15_000;
+const DEFAULT_SKIKTGRANS_2025 = 625_800;
+const DEFAULT_SKIKTGRANS_2026 = 643_000;
 
 type VehicleType = 'egen_bil' | 'formansbil_el' | 'formansbil_fossil';
 
@@ -82,6 +85,9 @@ type Settings = {
   fuelLPerMil: number | null;
   fuelPrice: number | null;
   purposeFilter: string;
+  // Per-year overrides — keys are year strings, values are amounts
+  avdragsgransPerYear: Record<string, number>;
+  skiktgransPerYear: Record<string, number>;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -93,7 +99,21 @@ const DEFAULT_SETTINGS: Settings = {
   fuelLPerMil: 0.6,
   fuelPrice: 18,
   purposeFilter: 'Pendling',
+  avdragsgransPerYear: {},
+  skiktgransPerYear: {},
 };
+
+function getAvdragsgrans(settings: Settings, year: number): number {
+  const override = settings.avdragsgransPerYear[String(year)];
+  if (override != null) return override;
+  return year <= 2025 ? DEFAULT_AVDRAGSGRANS_2025 : DEFAULT_AVDRAGSGRANS_2026;
+}
+
+function getSkiktgrans(settings: Settings, year: number): number {
+  const override = settings.skiktgransPerYear[String(year)];
+  if (override != null) return override;
+  return year <= 2025 ? DEFAULT_SKIKTGRANS_2025 : DEFAULT_SKIKTGRANS_2026;
+}
 
 const STORAGE_KEY = 'reseavdrag-settings';
 
@@ -184,12 +204,12 @@ export default function ReseavdragPage() {
     // Schablon
     const schablonPerMil = SCHABLON[settings.vehicleType] ?? 25;
     const schablonTotal = totalMil * schablonPerMil;
-    const avdragsgrans = AVDRAGSGRANS(year);
+    const avdragsgrans = getAvdragsgrans(settings, year);
     const avdragsbelopp = Math.max(0, schablonTotal - avdragsgrans);
 
     // Marginalskatt
     const arsilon = (settings.monthlySalary ?? 0) * 12;
-    const skiktgrans = SKIKTGRANS(year);
+    const skiktgrans = getSkiktgrans(settings, year);
     const kommunalskatt = (settings.municipalTax ?? 32) / 100;
     const harStatligSkatt = arsilon > skiktgrans + 100_000; // förenklad grundavdragskompensation
     const marginalskatt = kommunalskatt + (harStatligSkatt ? 0.20 : 0);
@@ -283,7 +303,7 @@ export default function ReseavdragPage() {
           <dt>Schablon ({SCHABLON_LABEL[settings.vehicleType]})</dt>
           <dd>{fmt(calc.totalMil, 1)} mil &times; {calc.schablonPerMil} kr = {fmtKr(Math.round(calc.schablonTotal))}</dd>
 
-          <dt>Avdragsgräns ({year <= 2025 ? '2025' : '2026+'})</dt>
+          <dt>Avdragsgräns ({year})</dt>
           <dd>&minus;{fmtKr(calc.avdragsgrans)}</dd>
 
           <hr className="summary-divider" />
@@ -393,6 +413,33 @@ export default function ReseavdragPage() {
               />
             </div>
 
+            <div className="field">
+              <span className="field-label">Avdragsgräns {year} (kr)</span>
+              <DecimalInput
+                value={settings.avdragsgransPerYear[String(year)] ?? null}
+                onValueChange={v => {
+                  const next = { ...settings.avdragsgransPerYear };
+                  if (v == null) { delete next[String(year)]; } else { next[String(year)] = v; }
+                  updateSetting('avdragsgransPerYear', next);
+                }}
+                placeholder={`Standard: ${fmt(getAvdragsgrans({ ...settings, avdragsgransPerYear: {} }, year))}`}
+              />
+              <span className="field-hint">Tomt = standardvärde. Ange eget värde för {year} om gränsen ändrats.</span>
+            </div>
+            <div className="field">
+              <span className="field-label">Skiktgräns statlig skatt {year} (kr)</span>
+              <DecimalInput
+                value={settings.skiktgransPerYear[String(year)] ?? null}
+                onValueChange={v => {
+                  const next = { ...settings.skiktgransPerYear };
+                  if (v == null) { delete next[String(year)]; } else { next[String(year)] = v; }
+                  updateSetting('skiktgransPerYear', next);
+                }}
+                placeholder={`Standard: ${fmt(getSkiktgrans({ ...settings, skiktgransPerYear: {} }, year))}`}
+              />
+              <span className="field-hint">Tomt = standardvärde. Ange eget värde om skiktgränsen ändrats.</span>
+            </div>
+
             {settings.vehicleType !== 'formansbil_fossil' ? (
               <>
                 <div className="field">
@@ -448,8 +495,8 @@ export default function ReseavdragPage() {
       </div>
 
       <div className="status-bar">
-        Avdragsgräns {year}: {fmtKr(AVDRAGSGRANS(year))} · Schablon: {SCHABLON[settings.vehicleType]} kr/mil ·
-        Skiktgräns statlig skatt: {fmtKr(SKIKTGRANS(year))}
+        Avdragsgräns {year}: {fmtKr(getAvdragsgrans(settings, year))} · Schablon: {SCHABLON[settings.vehicleType]} kr/mil ·
+        Skiktgräns statlig skatt: {fmtKr(getSkiktgrans(settings, year))}
       </div>
     </div>
   );
