@@ -1,8 +1,9 @@
 import { NextResponse, NextRequest } from 'next/server';
 
-const API = process.env.INTERNAL_API_URL
-  || process.env.NEXT_PUBLIC_API_URL
-  || 'http://host.docker.internal:8080';
+// INTERNAL_API_URL för server-side (middleware → API).
+// NEXT_PUBLIC_API_URL utelämnas här – den är för browsern, inte container-till-container.
+// host.docker.internal fungerar i Docker Desktop (Mac/Win/Linux).
+const API = process.env.INTERNAL_API_URL || 'http://host.docker.internal:8080';
 
 // Vägar som ska vara publika (tillåtna utan inloggning)
 const PUBLIC_PATHS = new Set<string>([
