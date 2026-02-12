@@ -75,6 +75,25 @@ body {
   color: #fff;
 }
 
+.nav-logout {
+  margin-left: auto;
+  padding: 10px 16px;
+  border: none;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  font-size: 15px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition), color var(--transition);
+}
+
+.nav-logout:hover {
+  background: var(--color-danger-light, #fde8e8);
+  color: var(--color-danger, #dc2626);
+}
+
 /* ===== Main Container ===== */
 .main-container {
   max-width: 1200px;
