@@ -1,6 +1,8 @@
 import { NextResponse, NextRequest } from 'next/server';
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const API = process.env.INTERNAL_API_URL
+  || process.env.NEXT_PUBLIC_API_URL
+  || 'http://host.docker.internal:8080';
 
 // Vägar som ska vara publika (tillåtna utan inloggning)
 const PUBLIC_PATHS = new Set<string>([
