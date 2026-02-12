@@ -1,14 +1,15 @@
-import os, time, hmac, hashlib, base64, json, bcrypt
+import os, time, hmac, hashlib, base64, json, secrets as _secrets, bcrypt
 from datetime import datetime
 from typing import Optional, Tuple
 import bcrypt
 
-# Fail if SECRET_KEY not set in production
+# Fail if SECRET_KEY not set in production; auto-generate for dev/Docker Desktop
 SECRET = os.getenv("SECRET_KEY")
 if not SECRET:
     if os.getenv("ENV", "development") == "production":
         raise RuntimeError("SECRET_KEY must be set in production!")
-    SECRET = "dev-secret-change-me"
+    SECRET = _secrets.token_hex(64)
+    print(f"[INFO] No SECRET_KEY set – auto-generated for this session")
 
 EXP_MIN = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES","1440"))  # 24 hours default
 

@@ -54,8 +54,8 @@ COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "lax")
 # ===== Startup/Shutdown =====
 def ensure_admin(db: Session):
     """Ensure admin user exists."""
-    username = os.getenv("ADMIN_USERNAME")
-    password = os.getenv("ADMIN_PASSWORD")
+    username = os.getenv("ADMIN_USERNAME", "admin")
+    password = os.getenv("ADMIN_PASSWORD", "admin1234")
 
     if not username or not password:
         logger.warning("ADMIN_USERNAME or ADMIN_PASSWORD not set. Skipping admin creation.")
