@@ -136,6 +136,7 @@ export default function Home() {
   const [editEndAddr, setEditEndAddr] = useState('');
   const [editStartOdo, setEditStartOdo] = useState<number | null>(null);
   const [editEndOdo, setEditEndOdo] = useState<number | null>(null);
+  const [editDistance, setEditDistance] = useState<number | null>(null);
   const [editStartedAt, setEditStartedAt] = useState('');
   const [editEndedAt, setEditEndedAt] = useState('');
   const [editSaving, setEditSaving] = useState(false);
@@ -258,6 +259,8 @@ export default function Home() {
     }
   };
 
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+
   const loadTripIntoEditor = (t: Trip) => {
     setEditId(t.id);
     setEditVehicle(t.vehicle_reg || '');
@@ -268,6 +271,12 @@ export default function Home() {
     setEditEndAddr(t.end_address || '');
     setEditStartOdo(t.start_odometer_km ?? null);
     setEditEndOdo(t.end_odometer_km ?? null);
+    const dist = t.distance_km != null
+      ? t.distance_km
+      : (t.start_odometer_km != null && t.end_odometer_km != null)
+        ? round1(t.end_odometer_km - t.start_odometer_km)
+        : null;
+    setEditDistance(dist);
     setEditStartedAt(toLocalInputValue(t.started_at));
     setEditEndedAt(toLocalInputValue(t.ended_at));
     setTimeout(() => {
@@ -278,7 +287,35 @@ export default function Home() {
   const resetEditor = () => {
     setEditId(null); setEditVehicle(''); setEditPurpose(''); setEditBusiness(true);
     setEditDriver(''); setEditStartAddr(''); setEditEndAddr('');
-    setEditStartOdo(null); setEditEndOdo(null); setEditStartedAt(''); setEditEndedAt('');
+    setEditStartOdo(null); setEditEndOdo(null); setEditDistance(null);
+    setEditStartedAt(''); setEditEndedAt('');
+  };
+
+  const handleEditStartOdo = (val: number | null) => {
+    setEditStartOdo(val);
+    if (val != null && editEndOdo != null) {
+      setEditDistance(round1(editEndOdo - val));
+    } else if (val != null && editDistance != null) {
+      setEditEndOdo(round1(val + editDistance));
+    }
+  };
+
+  const handleEditEndOdo = (val: number | null) => {
+    setEditEndOdo(val);
+    if (val != null && editStartOdo != null) {
+      setEditDistance(round1(val - editStartOdo));
+    } else if (val != null && editDistance != null) {
+      setEditStartOdo(round1(val - editDistance));
+    }
+  };
+
+  const handleEditDistance = (val: number | null) => {
+    setEditDistance(val);
+    if (val != null && editStartOdo != null) {
+      setEditEndOdo(round1(editStartOdo + val));
+    } else if (val != null && editEndOdo != null) {
+      setEditStartOdo(round1(editEndOdo - val));
+    }
   };
 
   const saveEdit = async () => {
@@ -298,7 +335,7 @@ export default function Home() {
         driver_name: editDriver || null,
         start_address: editStartAddr || null,
         end_address: editEndAddr || null,
-        distance_km: null,
+        distance_km: editDistance ?? null,
       };
       const r = await fetchAuth(`${API}/trips/${editId}`, { method: 'PUT', body: JSON.stringify(payload) });
       if (!r.ok) { const txt = await r.text(); alert(`Kunde inte spara resan: ${txt}`); return; }
@@ -466,11 +503,15 @@ export default function Home() {
               </div>
               <div className="field">
                 <span className="field-label">Start mätarställning</span>
-                <DecimalInput value={editStartOdo} onValueChange={setEditStartOdo} />
+                <DecimalInput value={editStartOdo} onValueChange={handleEditStartOdo} />
               </div>
               <div className="field">
                 <span className="field-label">Slut mätarställning</span>
-                <DecimalInput value={editEndOdo} onValueChange={setEditEndOdo} />
+                <DecimalInput value={editEndOdo} onValueChange={handleEditEndOdo} />
+              </div>
+              <div className="field">
+                <span className="field-label">Körsträcka (km)</span>
+                <DecimalInput value={editDistance} onValueChange={handleEditDistance} placeholder="Beräknas automatiskt" />
               </div>
               <div className="field">
                 <span className="field-label">Starttid</span>
