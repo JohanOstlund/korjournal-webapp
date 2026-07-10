@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.10] - 2026-07-11
+### Fixed
+- Web-imagen gick inte längre att bygga: `typescript`/`@types` saknades i
+  `devDependencies` så Next försökte auto-installera dem under `next build`,
+  vilket kraschar med nyare npm ("The \"id\" argument must be of type string").
+  Nu explicita devDependencies och package-lock i synk.
+
 ## [2.2.9] - 2026-07-11
 ### Fixed
 - `force-update-and-poll` gav 400 mot nyare kia_uvo-versioner som kräver `device_id`:
