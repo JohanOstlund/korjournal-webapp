@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.9] - 2026-07-11
+### Fixed
+- `force-update-and-poll` gav 400 mot nyare kia_uvo-versioner som kräver `device_id`:
+  ny env-variabel `HA_FORCE_DATA` (JSON) skickas som payload till force-tjänsten.
+- Timeout mot HA höjd 20→60 s — kia_uvo:s force_update blockerar tills coordinatorn
+  svarat, vilket kunde ta längre än 20 s och ge `ReadTimeout`.
+- Efter force-anropet hämtas nu molncachen med `{domain}/update` innan sensorn läses av.
+  Nyare kia_uvo uppdaterar inte odometer-entiteten vid force_update (den ber bara bilen
+  ladda upp till molnet), vilket gav gammal mätarställning vid avläsning direkt efter resa.
+
 ## [2.0.0] - 2026-02-11
 ### Added
 - `globals.css` design system med CSS custom properties och responsiva breakpoints.

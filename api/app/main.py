@@ -608,7 +608,8 @@ async def ha_force_update_and_poll(
     svc_url = f"{base}/api/services/{domain}/{service}"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-    async with httpx.AsyncClient(timeout=20, verify=HA_VERIFY_SSL) as client:
+    # Force-anropet blockerar tills HA:s coordinator svarat (kan ta >20s)
+    async with httpx.AsyncClient(timeout=60, verify=HA_VERIFY_SSL) as client:
         s = await client.post(svc_url, headers=headers, json=data_json or {})
         if s.status_code not in (200, 201):
             logger.error(f"HA force update failed: {s.status_code} - {s.text}")
@@ -616,6 +617,20 @@ async def ha_force_update_and_poll(
 
     logger.info(f"HA force update triggered for user {user.username}, waiting {wait_seconds}s...")
     await asyncio.sleep(wait_seconds)
+
+    # kia_uvo:s force_update ber bara bilen ladda upp färsk data till molnet;
+    # HA-sensorn uppdateras inte av det. Hämta molncachen med {domain}/update
+    # innan avläsning så att entiteten speglar det nya värdet. Best effort -
+    # misslyckas anropet returneras aktuellt sensorvärde som tidigare.
+    refresh_url = f"{base}/api/services/{domain}/update"
+    async with httpx.AsyncClient(timeout=60, verify=HA_VERIFY_SSL) as client:
+        try:
+            r = await client.post(refresh_url, headers=headers, json=data_json or {})
+            if r.status_code not in (200, 201):
+                logger.warning(f"HA cache refresh ({domain}/update) failed: {r.status_code} - {r.text}")
+        except httpx.HTTPError as e:
+            logger.warning(f"HA cache refresh ({domain}/update) failed: {e}")
+
     return await ha_poll(payload, user, db)
 
 # ----- Trips -----

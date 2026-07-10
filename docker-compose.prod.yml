@@ -33,6 +33,7 @@ services:
       HA_ODOMETER_ENTITY: ${HA_ODOMETER_ENTITY:-}
       HA_FORCE_DOMAIN: ${HA_FORCE_DOMAIN:-kia_uvo}
       HA_FORCE_SERVICE: ${HA_FORCE_SERVICE:-force_update}
+      HA_FORCE_DATA: ${HA_FORCE_DATA:-}
     volumes:
       - api_data:/app/data
     ports:
