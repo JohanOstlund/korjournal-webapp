@@ -21,18 +21,38 @@ set -euo pipefail
 
 # ─── Konfiguration ────────────────────────────────────────────────────────────
 
-HOST="${HOST:-korjournal.fjoppel.se}"
-WEB_PORT="${WEB_PORT:-3001}"     # Next.js-containern
-API_PORT="${API_PORT:-8080}"     # FastAPI-containern
+# Värdnamn och personer läses ur .env, som är gitignorerad. Repot är publikt,
+# och det ska inte annonsera vilken adress som ligger bakom grinden eller vilka
+# som har en länk. Säkerheten vilar på hemligheterna och inte på att adressen är
+# okänd — men det finns ingen anledning att skylta med måltavlan.
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="${ENV_FILE:-$REPO_DIR/.env}"
+
+env_value() { sed -n "s/^$1=//p" "$ENV_FILE" 2>/dev/null | head -1 | tr -d '"' | cut -d'#' -f1; }
+
+if [[ -f "$ENV_FILE" ]]; then
+    PUBLIC_ORIGIN="${PUBLIC_ORIGIN:-$(env_value PUBLIC_ORIGIN)}"
+    ACCESS_PEOPLE="${ACCESS_PEOPLE:-$(env_value ACCESS_PEOPLE)}"
+    WEB_PORT="${WEB_PORT:-$(env_value WEB_PORT)}"
+    API_PORT="${API_PORT:-$(env_value API_PORT)}"
+fi
+
+# Strippa schema och eventuell sökväg: https://exempel.se/ -> exempel.se
+HOST="${HOST:-${PUBLIC_ORIGIN:-}}"
+HOST="${HOST#*://}"
+HOST="$(echo "${HOST%%/*}" | tr -d '[:space:]')"
+
+WEB_PORT="$(echo "${WEB_PORT:-3001}" | tr -d '[:space:]')"   # Next.js-containern
+API_PORT="$(echo "${API_PORT:-8080}" | tr -d '[:space:]')"   # FastAPI-containern
 
 # En länk per person, inte per enhet — samma länk funkar på personens telefon
 # och surfplatta. Vill du kunna spärra en enskild enhet, namnge per enhet
-# i stället: (Johan-iphone Johan-ipad Sanna-iphone)
-PEOPLE=(Johan Sanna)
+# i stället: ACCESS_PEOPLE=anna-iphone,anna-ipad,bo-iphone
+read -r -a PEOPLE <<< "$(echo "${PEOPLE_OVERRIDE:-${ACCESS_PEOPLE:-}}" | tr ',' ' ')"
 
-# Certet: ssl_2.conf pekar på hassio-certet, vars SAN-lista redan innehåller
-# korjournal.fjoppel.se. Verifieras nedan innan något skrivs.
-SSL_INCLUDE="ssl_2.conf"
+# nginx-include med certet för värdnamnet. SAN-listan verifieras nedan innan
+# något skrivs.
+SSL_INCLUDE="${SSL_INCLUDE:-ssl_2.conf}"
 
 NGINX_AVAILABLE="/etc/nginx/sites-available"
 NGINX_ENABLED="/etc/nginx/sites-enabled"
@@ -52,6 +72,9 @@ die()  { printf '\n\033[1;31mAvbryter:\033[0m %s\n' "$*" >&2; exit 1; }
 
 need() { command -v "$1" >/dev/null 2>&1 || die "saknar $1"; }
 need openssl; need curl; need nginx
+
+[[ -n "$HOST" ]] || die "inget värdnamn. Sätt PUBLIC_ORIGIN i $ENV_FILE (t.ex. https://korjournal.exempel.se) eller kör med HOST=..."
+[[ ${#PEOPLE[@]} -gt 0 && -n "${PEOPLE[0]:-}" ]] || die "inga personer att skapa länkar för. Sätt ACCESS_PEOPLE i $ENV_FILE (t.ex. ACCESS_PEOPLE=anna,bo)"
 
 # ─── Förkontroller ────────────────────────────────────────────────────────────
 
