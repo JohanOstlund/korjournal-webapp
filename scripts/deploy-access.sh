@@ -19,6 +19,11 @@
 
 set -euo pipefail
 
+# nginx ligger i /usr/sbin, som inte finns i en vanlig användares PATH på
+# Debian. Skriptet kör den ändå bara via sudo — men förkontrollen nedan letar
+# efter binären, och utan det här faller den på "saknar nginx".
+PATH="$PATH:/usr/sbin:/sbin"
+
 # ─── Konfiguration ────────────────────────────────────────────────────────────
 
 # Värdnamn och personer läses ur .env, som är gitignorerad. Repot är publikt,
@@ -199,7 +204,8 @@ tmp="$(mktemp)"
     echo "}"
     echo
     echo "server {"
-    echo "    listen 443 ssl http2;"
+    echo "    listen 443 ssl;"
+    echo "    http2 on;"
     echo "    server_name $HOST;"
     echo "    include $SSL_INCLUDE;"
     echo
