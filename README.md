@@ -81,6 +81,41 @@ Admin-användare skapas automatiskt vid första start utifrån `ADMIN_USERNAME` 
 
 ---
 
+## Åtkomst utifrån
+
+Appen anropar API:t på `/api` på samma origin som webben. Det gör att den
+fungerar likadant hemma (`http://<SERVER_HOST>:3001`) som utifrån
+(`https://<din-domän>`), utan CORS och utan mixed content. Sätt `PUBLIC_ORIGIN`
+i `.env` till adressen appen nås på utifrån.
+
+Att lägga appen öppet på internet är inte önskvärt, så åtkomsten går genom en
+grind i nginx: en **engångsregistrerad cookie per person**. Du öppnar din länk
+en gång på telefonen och är därefter inne för gott; enheter på LAN släpps förbi
+utan cookie, och alla andra får 404 — en portscanner ska inte ens se att det
+finns något här.
+
+```bash
+sudo -v                          # grinden skriver i /etc/nginx
+scripts/deploy-access.sh         # skriver vhost, laddar om, verifierar, skriver ut länkarna
+scripts/deploy-access.sh --rotate  # nya hemligheter, av-registrerar alla enheter
+```
+
+Redigera `PEOPLE` överst i skriptet för att lägga till någon. Vid omkörning
+återanvänds befintliga hemligheter, så ingen kastas ut i onödan.
+
+Grinden ersätter **inte** inloggningen — appens egen auth (bcrypt, JWT, rate
+limit på 5 försök/minut) gäller fortfarande. Den är ett lager utanpå.
+
+Två saker att kontrollera:
+
+- **Port 3001 och 8080 får inte vara port-forwardade i routern** parallellt med
+  443, annars går hela grinden att gå runt.
+- **LAN-undantaget bygger på att externa anrop har publika käll-IP:n.** En router
+  som source-NAT:ar port forwards får hela internet att se ut som LAN. Skriptet
+  tittar i `access.log` och varnar om det inte kan bekräfta motsatsen.
+
+---
+
 ## Autentisering
 
 ### Logga in (cookie-baserat, används av webben)
