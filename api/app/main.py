@@ -50,6 +50,23 @@ HA_VERIFY_SSL = os.getenv("HA_VERIFY_SSL", "true").lower() == "true"
 COOKIE_NAME = "session"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "lax")
+# Utan Max-Age blir sessionen en ren sessionscookie, som iOS slänger så fort
+# PWA:n dödas — då möts man av inloggningsrutan varje gång en mätarställning
+# ska knappas in. Livslängden följer JWT:ns, annars pekar cookien på en token
+# som redan gått ut.
+COOKIE_MAX_AGE = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440")) * 60
+
+
+def cookie_is_secure(request: Request) -> bool:
+    """Secure-flaggan måste följa protokollet, inte en fast inställning.
+
+    Sätts den alltid kastar webbläsaren cookien över LAN:ets http och ingen kan
+    logga in hemma; sätts den aldrig går sessionen i klartext den dag någon når
+    appen över http. nginx sätter X-Forwarded-Proto.
+    """
+    if COOKIE_SECURE:
+        return True
+    return request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
 
 # ===== Startup/Shutdown =====
 def ensure_admin(db: Session):
@@ -412,8 +429,9 @@ async def login(request: Request, payload: LoginIn, response: Response, db: Sess
         key=COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=COOKIE_SECURE,
+        secure=cookie_is_secure(request),
         samesite=COOKIE_SAMESITE,
+        max_age=COOKIE_MAX_AGE,
         path="/"
     )
     logger.info(f"Successful login for user: {payload.username}")
@@ -433,9 +451,16 @@ async def login_token(request: Request, payload: LoginIn, db: Session = Depends(
     token = sign_jwt({"sub": u.username})
     return {"ok": True, "user": {"username": u.username}, "access_token": token}
 @app.post("/auth/logout")
-def logout(response: Response):
+def logout(request: Request, response: Response):
     """Logout endpoint."""
-    response.delete_cookie(COOKIE_NAME, path="/")
+    # Attributen måste matcha dem cookien sattes med, annars vägrar
+    # webbläsaren radera den och man blir kvar inloggad.
+    response.delete_cookie(
+        COOKIE_NAME,
+        path="/",
+        secure=cookie_is_secure(request),
+        samesite=COOKIE_SAMESITE,
+    )
     return {"ok": True}
 
 @app.get("/auth/me")
