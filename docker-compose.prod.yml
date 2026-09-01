@@ -19,7 +19,7 @@ services:
     environment:
       # Lämna DATABASE_URL tom för SQLite, eller sätt för extern DB:
       # DATABASE_URL: "mysql+pymysql://${NAS_DB_USER}:${NAS_DB_PASS}@${NAS_DB_HOST}:${NAS_DB_PORT}/${NAS_DB_NAME}?charset=utf8mb4"
-      CORS_ORIGINS: "http://${SERVER_HOST:-localhost}:${WEB_PORT:-3001},http://localhost:${WEB_PORT:-3001}"
+      CORS_ORIGINS: "http://${SERVER_HOST:-localhost}:${WEB_PORT:-3001},http://localhost:${WEB_PORT:-3001}${PUBLIC_ORIGIN:+,${PUBLIC_ORIGIN}}"
       SECRET_KEY: ${SECRET_KEY:-}
       ENV: ${ENV:-production}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
@@ -50,7 +50,7 @@ services:
     container_name: korjournal-web
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: "http://${SERVER_HOST:-localhost}:${API_PORT:-8080}"
+      NEXT_PUBLIC_API_URL: "/api"
       INTERNAL_API_URL: "http://korjournal-api:8080"
     ports:
       - "${WEB_PORT:-3001}:3000"

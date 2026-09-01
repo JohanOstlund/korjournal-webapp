@@ -9,7 +9,9 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: "mysql+pymysql://${NAS_DB_USER:?set NAS_DB_USER}:${NAS_DB_PASS:?set NAS_DB_PASS}@${NAS_DB_HOST:?set NAS_DB_HOST}:${NAS_DB_PORT:-3306}/${NAS_DB_NAME:?set NAS_DB_NAME}?charset=utf8mb4"
-      CORS_ORIGINS: "http://${SERVER_HOST:?set SERVER_HOST}:${WEB_PORT:-3001},http://localhost:${WEB_PORT:-3001}"
+      # Webben anropar API:t på samma origin via /api, så CORS slår aldrig till
+      # för appen. Listan finns kvar för direkta API-anrop (automationer, PAT).
+      CORS_ORIGINS: "http://${SERVER_HOST:?set SERVER_HOST}:${WEB_PORT:-3001},http://localhost:${WEB_PORT:-3001}${PUBLIC_ORIGIN:+,${PUBLIC_ORIGIN}}"
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
       ENV: ${ENV:-development}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
@@ -42,7 +44,9 @@ services:
     container_name: korjournal-web
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: "http://${SERVER_HOST:?set SERVER_HOST}:${API_PORT:-8080}"
+      # Relativ med flit: samma origin som sidan, oavsett om den nås via
+      # https utifrån eller http mot containern hemma.
+      NEXT_PUBLIC_API_URL: "/api"
       INTERNAL_API_URL: "http://korjournal-api:8080"
     ports:
       - "${WEB_PORT:-3001}:3000"

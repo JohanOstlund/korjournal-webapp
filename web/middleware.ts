@@ -12,6 +12,9 @@ const PUBLIC_PATHS = new Set<string>([
   '/favicon.ico',
   '/robots.txt',
   '/sitemap.xml',
+  // API:t har sin egen auth. Kommer det hit blir varje 401 en redirect till
+  // /login med HTML i svaret, vilket fetch-anropen inte kan tolka.
+  '/api',
 ]);
 
 function isPublicPath(pathname: string) {
