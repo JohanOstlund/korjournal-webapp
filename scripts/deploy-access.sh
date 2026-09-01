@@ -307,6 +307,20 @@ info "nginx omladdad"
 
 # ─── Verifiera grinden ────────────────────────────────────────────────────────
 
+# nginx laddar om grasiöst: de gamla arbetsprocesserna lever kvar en stund och
+# hinner svara på de första anropen efter reload. Mäter man direkt får man den
+# GAMLA konfigurationen tillbaka och rapporterar fel på en grind som fungerar.
+# Vänta tills den nya faktiskt svarar i stället för att gissa en sleep-tid.
+say "Väntar in omladdningen"
+for _ in $(seq 40); do
+    if [[ "$(curl -s -o /dev/null -w '%{http_code}' --resolve "$HOST:443:127.0.0.1" \
+             "https://$HOST/login" --max-time 5 || echo 000)" == "404" ]]; then
+        break
+    fi
+    sleep 0.5
+done
+info "ny konfiguration svarar"
+
 say "Verifierar grinden (från 127.0.0.1, som ligger utanför LAN-bypassen)"
 
 check() {
