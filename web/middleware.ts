@@ -15,6 +15,12 @@ const PUBLIC_PATHS = new Set<string>([
   // API:t har sin egen auth. Kommer det hit blir varje 401 en redirect till
   // /login med HTML i svaret, vilket fetch-anropen inte kan tolka.
   '/api',
+  // PWA-skalet måste vara läsbart utloggad, annars kan appen inte installeras
+  // och service workern aldrig registreras.
+  '/manifest.webmanifest',
+  '/sw.js',
+  '/icons',
+  '/apple-touch-icon.png',
 ]);
 
 function isPublicPath(pathname: string) {
@@ -23,7 +29,7 @@ function isPublicPath(pathname: string) {
     if (pathname === pub || pathname.startsWith(pub + '/')) return true;
   }
   // Tillåt också statiska filer under /public med filändelser
-  if (/\.(?:png|jpg|jpeg|gif|svg|webp|ico|txt|xml|css|js|map)$/.test(pathname)) return true;
+  if (/\.(?:png|jpg|jpeg|gif|svg|webp|ico|txt|xml|css|js|map|json|webmanifest|html)$/.test(pathname)) return true;
   return false;
 }
 

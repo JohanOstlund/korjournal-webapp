@@ -207,7 +207,10 @@ textarea {
   padding: 10px 12px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  font-size: 15px;
+  /* 16px är inte en smakfråga: under det zoomar iOS in på fältet vid fokus
+     och lämnar sidan felskalad efteråt. Gäller mätarställningsfältet, som är
+     det man ska kunna fylla i snabbt stående vid bilen. */
+  font-size: 16px;
   font-family: inherit;
   background: var(--color-surface);
   color: var(--color-text);
@@ -541,4 +544,45 @@ input[type="checkbox"] {
   .btn-group { width: 100%; }
   .btn-group .btn { flex: 1; }
   .form-grid { gap: 10px; }
+}
+
+/* ===== PWA / installerad app =====
+   Gäller när appen körts igång från hemskärmen. Sidan ritas ut i kanterna
+   (viewport-fit=cover i layout.tsx), så innehållet måste själv hålla sig
+   undan hörn, kameraurtag och hemknappsstreck. */
+
+.nav {
+  padding-left: calc(16px + env(safe-area-inset-left));
+  padding-right: calc(16px + env(safe-area-inset-right));
+}
+
+.main-container {
+  padding-left: calc(16px + env(safe-area-inset-left));
+  padding-right: calc(16px + env(safe-area-inset-right));
+  /* Extra luft nederst så sista knappen inte hamnar under hemknappsstrecket. */
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+
+@media (display-mode: standalone) {
+  /* Ingen webbläsarkrom att studsa mot — gummibandsscrollen ser bara trasig ut. */
+  body {
+    overscroll-behavior-y: none;
+  }
+
+  /* Navigationen är appens toppfält när adressfältet är borta. */
+  .nav {
+    padding-top: calc(8px + env(safe-area-inset-top));
+  }
+}
+
+/* Grå blinkning vid tryck ser ut som en bugg i en installerad app. */
+a, button, .btn, label {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Tumstora träffytor i navigationen. */
+.nav a, .nav-logout {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
 }

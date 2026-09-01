@@ -18,6 +18,7 @@ En fullständig körjournal med **fleranvändarsupport**, **resmallar**, **miler
 - **Milersättning/reseavdrag** – beräkna avdrag enligt Skatteverkets regler (egen bil, förmånsbil el/fossil).
 - Exportera **PDF** och **CSV** per år med månadssummor och totalsumma.
 - **Home Assistant-integration** med force-update av mätarställning (konfigurerbart per användare).
+- **Installerbar som app** på iPhone och Android (PWA), nåbar utifrån bakom en registreringslänk.
 - **Personal Access Tokens (PAT)** för API-åtkomst från automationer.
 - Rate limiting, structured logging och bcrypt-hashade lösenord.
 
@@ -113,6 +114,28 @@ Två saker att kontrollera:
 - **LAN-undantaget bygger på att externa anrop har publika käll-IP:n.** En router
   som source-NAT:ar port forwards får hela internet att se ut som LAN. Skriptet
   tittar i `access.log` och varnar om det inte kan bekräfta motsatsen.
+
+---
+
+## PWA (hemskärmsapp)
+
+Appen är installerbar på iPhone och Android från https-adressen — manifest,
+ikoner, service worker och offline-sida ingår.
+
+- **iPhone:** Safari → Dela → *Lägg till på hemskärmen*.
+- **Android:** Chrome → menyn → *Installera app*.
+
+Service workern kräver secure context och registreras därför aldrig över LAN:ets
+http. Appen fungerar ändå där, men installera från https-adressen.
+
+Ingenting som kommer från servern cachas som svar på en navigering: sidorna är
+inloggningsskyddade och resorna ändras hela tiden, så en cachad sida skulle
+kunna visa ett skal som tror att du fortfarande är inloggad. Bara hashade
+byggartefakter och ikoner ligger i cachen.
+
+Sessionen lever `ACCESS_TOKEN_EXPIRE_MINUTES` (30 dagar som standard) och
+överlever att appen stängs. Det finns ingen spärrlista för utfärdade tokens —
+byt `SECRET_KEY` för att ogiltigförklara allihop på en gång.
 
 ---
 
