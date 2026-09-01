@@ -2,6 +2,49 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.0] - 2026-08-31
+### Added
+- **Åtkomst utifrån bakom en engångsregistrerad cookie.** `scripts/deploy-access.sh`
+  genererar en nginx-vhost med en `/enroll/<hemlighet>`-länk per person; enheter
+  på LAN släpps förbi utan cookie och allt annat får 404. Grinden gäller både
+  webben och `/api/`, och verifieras av skriptet från 127.0.0.1 (som med flit
+  ligger utanför LAN-undantaget). Appens egen inloggning gäller fortfarande —
+  grinden är ett lager utanpå den.
+- **PWA för iPhone och Android.** Manifest, ikoner (192/512/maskable),
+  apple-touch-icon, service worker och offline-sida. Navigeringar går alltid
+  till nätet så att en utgången session ger inloggningssidan i stället för ett
+  cachat skal; bara hashade byggartefakter och ikoner cachas.
+- **Home Assistant kan låsas till ett regnr** (`ha_settings.vehicle_reg`, tomt =
+  alla fordon som förut). Gäller anropet en annan bil svarar API:t 409 direkt i
+  stället för att lämna ut den kopplade bilens mätarställning — och utan att
+  först sova bort 35 sekunder i `force_update`.
+
+### Fixed
+- **Appen fungerade inte utifrån.** Webben anropade `http://<LAN-IP>:8080` från
+  browsern, vilket är onåbart utanför hemmanätet och dessutom blockeras som
+  mixed content på en https-sida. Nu går allt via `/api` på samma origin, med en
+  Next-rewrite för den som når Next direkt på LAN. Ingen CORS inblandad längre.
+- **nginx skickade `/api`-prefixet vidare till API:t**, som svarar på `/trips`,
+  inte `/api/trips` — varje anrop blev 404. `proxy_pass` har nu avslutande slash.
+- **Sessionen försvann så fort iOS dödade appen.** Cookien sattes utan `Max-Age`
+  och var alltså en ren sessionscookie. Nu följer den JWT:ns livslängd
+  (`ACCESS_TOKEN_EXPIRE_MINUTES`, höjd till 30 dagar).
+- **`Secure` sattes efter en fast inställning** i stället för efter protokollet:
+  antingen kastades cookien över LAN:ets http, eller skickades i klartext.
+  Följer nu `X-Forwarded-Proto`.
+- **`/auth/logout` raderade inte cookien** när den satts med `Secure`/`SameSite` —
+  attributen måste matcha för att webbläsaren ska ta bort den.
+- Mätarställningsfältet zoomade in på iOS vid fokus (inputs var 15px, gränsen är 16px).
+- Byggets platshållare för API-URL:en ersattes bara i `.js`, inte i förrenderad
+  `.html`, så den syntes i klartext tills sidan hydrerat.
+
+### Notes
+- `api/app/routes/auth.py` är död kod — den routern inkluderas aldrig, den
+  skarpa inloggningen ligger i `main.py`. Rörd men återställd; värd att radera.
+- Schemat sköts av `Base.metadata.create_all()`, som skapar tabeller men aldrig
+  lägger till kolumner i befintliga. Den nya kolumnen läggs därför till med
+  `scripts/migrate-ha-vehicle-reg.sh` (migrering `002` finns för den som kör alembic).
+
 ## [2.2.10] - 2026-07-11
 ### Fixed
 - Web-imagen gick inte längre att bygga: `typescript`/`@types` saknades i
