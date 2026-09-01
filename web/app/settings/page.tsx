@@ -16,6 +16,7 @@ type Settings = {
   ha_token_set?: boolean;
   ha_token?: string | null;
   ha_odometer_entity?: string | null;
+  ha_vehicle_reg?: string | null;
   force_domain?: string | null;
   force_service?: string | null;
   force_data_json?: Record<string, any> | null;
@@ -27,6 +28,7 @@ export default function SettingsPage() {
 
   const [haUrl, setHaUrl] = useState('');
   const [haEntity, setHaEntity] = useState('');
+  const [haVehicleReg, setHaVehicleReg] = useState('');
   const [haTokenInput, setHaTokenInput] = useState('');
   const [haTokenAlreadySet, setHaTokenAlreadySet] = useState(false);
 
@@ -42,6 +44,7 @@ export default function SettingsPage() {
       const s = (await r.json()) as Settings;
       setHaUrl((s.ha_base_url || '') as string);
       setHaEntity((s.ha_odometer_entity || '') as string);
+      setHaVehicleReg((s.ha_vehicle_reg || '') as string);
       setHaTokenAlreadySet(!!s.ha_token_set);
       setForceDomain((s.force_domain || '') as string);
       setForceService((s.force_service || '') as string);
@@ -65,6 +68,7 @@ export default function SettingsPage() {
     const payload: any = {
       ha_base_url: haUrl || null,
       ha_odometer_entity: haEntity || null,
+      ha_vehicle_reg: haVehicleReg || null,
       force_domain: forceDomain || null,
       force_service: forceService || null,
       force_data_json: parsed || null,
@@ -126,6 +130,20 @@ export default function SettingsPage() {
           <div className="field">
             <span className="field-label">Odometer Entity-ID</span>
             <input type="text" placeholder="sensor.kia_niro_odometer" value={haEntity} onChange={e => setHaEntity(e.target.value)} />
+          </div>
+          <div className="field">
+            <span className="field-label">Gäller regnr</span>
+            <input
+              type="text"
+              placeholder="t.ex. ABC123 — tomt = alla fordon"
+              value={haVehicleReg}
+              onChange={e => setHaVehicleReg(e.target.value.toUpperCase())}
+            />
+            <span className="field-hint">
+              Bilen som mätarställningen ovan tillhör. Lämnas fältet tomt hämtas
+              samma värde för alla fordon, vilket ger fel siffra så fort du kör
+              en annan bil. Övriga bilar fylls i för hand.
+            </span>
           </div>
           <div className="field">
             <span className="field-label">HA Token</span>

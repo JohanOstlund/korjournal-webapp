@@ -126,6 +126,11 @@ class HASetting(Base):
     token = Column(Text, nullable=True)  # visas aldrig i GET-svar
     odometer_entity = Column(String(255), nullable=True)
 
+    # Regnr som den här HA-kopplingen gäller. NULL = alla fordon, vilket är
+    # hur det betedde sig innan kolumnen fanns. Sätts den, hämtas mätarställning
+    # bara för det fordonet — övriga bilar fylls i för hand.
+    vehicle_reg = Column(String(64), nullable=True)
+
     force_domain  = Column(String(255), nullable=True)
     force_service = Column(String(255), nullable=True)
     force_data_json = Column(Text, nullable=True)

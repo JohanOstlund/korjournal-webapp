@@ -17,7 +17,8 @@ En fullständig körjournal med **fleranvändarsupport**, **resmallar**, **miler
 - **Resmallar** – spara och återanvänd vanliga resor.
 - **Milersättning/reseavdrag** – beräkna avdrag enligt Skatteverkets regler (egen bil, förmånsbil el/fossil).
 - Exportera **PDF** och **CSV** per år med månadssummor och totalsumma.
-- **Home Assistant-integration** med force-update av mätarställning (konfigurerbart per användare).
+- **Home Assistant-integration** med force-update av mätarställning (konfigurerbart per användare,
+  och låsbar till ett enskilt regnr).
 - **Installerbar som app** på iPhone och Android (PWA), nåbar utifrån bakom en registreringslänk.
 - **Personal Access Tokens (PAT)** för API-åtkomst från automationer.
 - Rate limiting, structured logging och bcrypt-hashade lösenord.
@@ -227,6 +228,18 @@ CT="Content-Type: application/json"
 ---
 
 ## Home Assistant (exempel)
+
+### Bilar utan Home Assistant
+
+HA-inställningen gäller **en** användare, inte ett fordon. Kör du flera bilar
+där bara en finns i Home Assistant, fyll i **Gäller regnr** under
+*Inställningar*. Då hämtas mätarställningen bara för den bilen, och övriga
+fylls i för hand.
+
+Lämnas fältet tomt gäller kopplingen alla fordon — vilket betyder att en resa
+med fel bil får den kopplade bilens mätarställning inskriven i journalen, tyst.
+Är fältet ifyllt svarar API:t 409 på anrop som gäller en annan bil, och
+webben ber om siffran i stället för att avsluta resan med 0 km.
 
 `secrets.yaml`:
 ```yaml

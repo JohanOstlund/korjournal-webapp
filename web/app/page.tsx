@@ -145,6 +145,9 @@ export default function Home() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<number | ''>('');
 
+  // Regnr som Home Assistant är kopplat till. Tomt = alla fordon, som förr.
+  const [haVehicleReg, setHaVehicleReg] = useState<string | null>(null);
+
   const loadTrips = async () => {
     try {
       setLoading(true);
@@ -176,7 +179,25 @@ export default function Home() {
       }
     };
     loadTemplates();
+
+    const loadHaVehicle = async () => {
+      try {
+        const r = await fetchAuth(`${API}/settings?_ts=${Date.now()}`, { cache: 'no-store' });
+        if (r.ok) {
+          const s = await r.json();
+          setHaVehicleReg((s.ha_vehicle_reg || '') as string);
+        }
+      } catch (e) {
+        console.error('Kunde inte läsa HA-inställning', e);
+      }
+    };
+    loadHaVehicle();
   }, []);
+
+  // Har HA ingen bil angiven gäller den alla fordon — så betedde den sig innan
+  // kopplingen kunde låsas till ett regnr.
+  const haCoversVehicle = (reg: string) =>
+    !haVehicleReg || haVehicleReg.trim().toUpperCase() === reg.trim().toUpperCase();
 
   const activeTrip = useMemo(() => {
     const list = trips.filter(t => t.ended_at === null);
@@ -212,7 +233,16 @@ export default function Home() {
     if (!vehicle.trim()) { alert('Fyll i Regnr först (eller välj).'); return; }
     try {
       setStarting(true);
-      let odo = startOdo ?? await haPollOdometerNoForce() ?? await haForceUpdateAndPoll();
+      // Att fråga HA om en bil den inte känner ger den ANDRA bilens
+      // mätarställning — tyst och rakt in i journalen.
+      let odo = startOdo;
+      if (odo == null && haCoversVehicle(vehicle)) {
+        odo = await haPollOdometerNoForce() ?? await haForceUpdateAndPoll();
+      }
+      if (odo == null && !haCoversVehicle(vehicle)) {
+        alert(`Fyll i startmätarställning — Home Assistant är kopplat till ${haVehicleReg}, inte ${vehicle.trim()}.`);
+        return;
+      }
       const body = {
         vehicle_reg: vehicle.trim(),
         start_odometer_km: odo ?? undefined,
@@ -234,7 +264,17 @@ export default function Home() {
     if (!activeTrip) { alert('Ingen pågående resa att avsluta.'); return; }
     try {
       setStopping(true);
-      let endVal = endOdo ?? await haForceUpdateAndPoll() ?? await haPollOdometerNoForce();
+      const reg = activeTrip.vehicle_reg || vehicle;
+      let endVal = endOdo;
+      if (endVal == null && haCoversVehicle(reg)) {
+        endVal = await haForceUpdateAndPoll() ?? await haPollOdometerNoForce();
+      }
+      if (endVal == null && !haCoversVehicle(reg)) {
+        // Utan slutvärde skrivs resan som 0 km, och det upptäcks först när
+        // journalen ska stämma vid deklarationen.
+        alert(`Fyll i slutmätarställning — Home Assistant är kopplat till ${haVehicleReg}, inte ${reg}.`);
+        return;
+      }
       const body: any = { trip_id: activeTrip.id };
       if (endVal != null) body.end_odometer_km = endVal;
       const r = await fetchAuth(`${API}/trips/finish`, { method: 'POST', body: JSON.stringify(body) });

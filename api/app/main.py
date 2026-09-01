@@ -210,6 +210,31 @@ def get_ha_config(db: Session, user: User):
             data_json = None
     return base, token, entity, domain, service, data_json
 
+def ha_locked_vehicle(db: Session, user: User) -> Optional[str]:
+    """Regnr som användarens HA-koppling gäller, eller None för alla fordon."""
+    h = db.query(HASetting).filter(HASetting.user_id == user.id).first()
+    return (h.vehicle_reg or None) if h else None
+
+
+def ensure_ha_covers_vehicle(db: Session, user: User, vehicle_reg: Optional[str]) -> None:
+    """Home Assistant är kopplat till en bil, inte till alla.
+
+    Utan den här kontrollen svarar HA glatt med den kopplade bilens
+    mätarställning även när frågan gäller en annan bil — och skriver alltså in
+    fel bils siffra i journalen. Force-varianten hinner dessutom sova bort
+    35 sekunder först. Säg nej direkt i stället.
+    """
+    locked = ha_locked_vehicle(db, user)
+    if not locked or not vehicle_reg:
+        return
+    if locked.strip().upper() != vehicle_reg.strip().upper():
+        raise HTTPException(
+            409,
+            f"Home Assistant är kopplat till {locked}, inte {vehicle_reg}. "
+            f"Fyll i mätarställningen manuellt."
+        )
+
+
 def ensure_no_overlap(db: Session, user_id: int, vehicle_id: int, start: datetime, end: Optional[datetime], exclude_id: Optional[int] = None):
     """Ensure no overlapping trips for the same user/vehicle."""
     q = db.query(Trip).filter(Trip.user_id == user_id, Trip.vehicle_id == vehicle_id)
@@ -388,6 +413,7 @@ class HAPollIn(BaseModel):
 class SettingsOut(BaseModel):
     ha_base_url: Optional[str] = None
     ha_odometer_entity: Optional[str] = None
+    ha_vehicle_reg: Optional[str] = None
     ha_token_set: bool = False
     force_domain: Optional[str] = None
     force_service: Optional[str] = None
@@ -396,6 +422,7 @@ class SettingsOut(BaseModel):
 class SettingsIn(BaseModel):
     ha_base_url: Optional[str] = None
     ha_odometer_entity: Optional[str] = None
+    ha_vehicle_reg: Optional[str] = None
     ha_token: Optional[str] = None
     force_domain: Optional[str] = None
     force_service: Optional[str] = None
@@ -568,6 +595,7 @@ def get_settings(user: User = Depends(get_current_user), db: Session = Depends(g
     return SettingsOut(
         ha_base_url=h.base_url if h else None,
         ha_odometer_entity=h.odometer_entity if h else None,
+        ha_vehicle_reg=h.vehicle_reg if h else None,
         ha_token_set=bool(h and h.token),
         force_domain=h.force_domain if h else None,
         force_service=h.force_service if h else None,
@@ -583,6 +611,7 @@ def put_settings(payload: SettingsIn, user: User = Depends(get_current_user), db
         db.add(h)
     if payload.ha_base_url is not None: h.base_url = payload.ha_base_url or None
     if payload.ha_odometer_entity is not None: h.odometer_entity = payload.ha_odometer_entity or None
+    if payload.ha_vehicle_reg is not None: h.vehicle_reg = (payload.ha_vehicle_reg or "").strip().upper() or None
     if payload.force_domain is not None: h.force_domain = payload.force_domain or None
     if payload.force_service is not None: h.force_service = payload.force_service or None
     if payload.force_data_json is not None: h.force_data_json = json.dumps(payload.force_data_json) if payload.force_data_json else None
@@ -598,6 +627,7 @@ def put_settings(payload: SettingsIn, user: User = Depends(get_current_user), db
 @protected.post("/integrations/home-assistant/poll")
 async def ha_poll(payload: HAPollIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Poll Home Assistant for odometer value."""
+    ensure_ha_covers_vehicle(db, user, payload.vehicle_reg)
     base, token, entity, *_ = get_ha_config(db, user)
     if not (base and token and (entity or payload.entity_id)):
         raise HTTPException(400, "HA Base/Token/Entity not configured")
@@ -627,6 +657,7 @@ async def ha_force_update_and_poll(
     db: Session = Depends(get_db)
 ):
     """Force Home Assistant update then poll for odometer value."""
+    ensure_ha_covers_vehicle(db, user, payload.vehicle_reg)
     base, token, entity, domain, service, data_json = get_ha_config(db, user)
     if not (base and token):
         raise HTTPException(400, "HA Base/Token not configured")
