@@ -559,7 +559,13 @@ export default function Home() {
               </div>
               <div className="field">
                 <span className="field-label">Sluttid</span>
-                <input type="datetime-local" value={editEndedAt} onChange={e => setEditEndedAt(e.target.value)} />
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <input type="datetime-local" value={editEndedAt} onChange={e => setEditEndedAt(e.target.value)} style={{ flex: 1, minWidth: 0 }} />
+                  {/* iOS "Nollställ" återställer till ursprungsvärdet, inte tomt — därför egen knapp */}
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditEndedAt('')} disabled={!editEndedAt}>
+                    Rensa
+                  </button>
+                </div>
               </div>
             </div>
             <div className="btn-group mt-16">
