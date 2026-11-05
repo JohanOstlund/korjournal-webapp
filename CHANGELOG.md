@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.1] - 2026-11-05
+### Fixed
+- **Sluttiden gick inte att rensa från mobilen.** Ett `datetime-local`-fält går
+  inte att markera och radera på iPhone, och knappen *Nollställ* i
+  datumväljaren återställer till fältets ursprungsvärde — som React håller lika
+  med det aktuella — så den gjorde ingenting. En resa som avslutats av misstag
+  gick alltså inte att göra pågående igen. Redigeringsvyn har nu en egen
+  **Rensa**-knapp bredvid Sluttid.
+- **`deploy-access.sh` avbröt direkt med "saknar nginx"** för en vanlig
+  användare: `nginx` ligger i `/usr/sbin`, som inte finns i en icke-roots PATH på
+  Debian. Skriptet anropar bara nginx via sudo, så kontrollen gör det nu också.
+- **Grindverifieringen mätte den gamla konfigurationen.** `systemctl reload`
+  returnerar innan de gamla nginx-workerna slutat svara, så kontrollerna kördes
+  mot vhosten som just ersatts och rapporterade en öppen grind. Skriptet väntar
+  nu tills den nya konfigurationen svarar.
+- `http2` flyttat från `listen`-direktivet; den gamla formen gav en
+  varning i `nginx -t`-utdatan som såg ut som ett fel.
+
+### Changed
+- Värdnamnet och registreringsnamnen läses från `.env` (`PUBLIC_ORIGIN`,
+  `ACCESS_PEOPLE`) i stället för att stå i det publika repot.
+
 ## [2.3.0] - 2026-08-31
 ### Added
 - **Åtkomst utifrån bakom en engångsregistrerad cookie.** `scripts/deploy-access.sh`
