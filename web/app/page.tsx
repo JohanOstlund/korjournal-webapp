@@ -206,22 +206,25 @@ export default function Home() {
   }, [trips, vehicle]);
 
   // HA helpers
-  const haPollOdometerNoForce = async (): Promise<number | null> => {
+  // Regnr skickas in i stället för att läsas från formuläret: en resa startad
+  // från HA-knappen lämnar formulärets fält tomt, och då nekade backend (409)
+  // avslutet för "UNKNOWN" så resan fick tomt slutvärde.
+  const haPollOdometerNoForce = async (reg: string): Promise<number | null> => {
     try {
       const res = await fetchAuth(`${API}/integrations/home-assistant/poll`, {
         method: 'POST',
-        body: JSON.stringify({ vehicle_reg: (vehicle || 'UNKNOWN').trim() }),
+        body: JSON.stringify({ vehicle_reg: reg.trim() }),
       });
       if (!res.ok) return null;
       const data = await res.json();
       return typeof data.value_km === 'number' ? data.value_km : null;
     } catch { return null; }
   };
-  const haForceUpdateAndPoll = async (): Promise<number | null> => {
+  const haForceUpdateAndPoll = async (reg: string): Promise<number | null> => {
     try {
       const res = await fetchAuth(`${API}/integrations/home-assistant/force-update-and-poll`, {
         method: 'POST',
-        body: JSON.stringify({ vehicle_reg: (vehicle || 'UNKNOWN').trim() }),
+        body: JSON.stringify({ vehicle_reg: reg.trim() }),
       });
       if (!res.ok) return null;
       const data = await res.json();
@@ -237,7 +240,7 @@ export default function Home() {
       // mätarställning — tyst och rakt in i journalen.
       let odo = startOdo;
       if (odo == null && haCoversVehicle(vehicle)) {
-        odo = await haPollOdometerNoForce() ?? await haForceUpdateAndPoll();
+        odo = await haPollOdometerNoForce(vehicle) ?? await haForceUpdateAndPoll(vehicle);
       }
       if (odo == null && !haCoversVehicle(vehicle)) {
         alert(`Fyll i startmätarställning — Home Assistant är kopplat till ${haVehicleReg}, inte ${vehicle.trim()}.`);
@@ -267,7 +270,7 @@ export default function Home() {
       const reg = activeTrip.vehicle_reg || vehicle;
       let endVal = endOdo;
       if (endVal == null && haCoversVehicle(reg)) {
-        endVal = await haForceUpdateAndPoll() ?? await haPollOdometerNoForce();
+        endVal = await haForceUpdateAndPoll(reg) ?? await haPollOdometerNoForce(reg);
       }
       if (endVal == null && !haCoversVehicle(reg)) {
         // Utan slutvärde skrivs resan som 0 km, och det upptäcks först när

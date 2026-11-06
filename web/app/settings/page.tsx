@@ -93,7 +93,7 @@ export default function SettingsPage() {
     try {
       const r = await fetchAuth(`${API}/integrations/home-assistant/poll`, {
         method: 'POST',
-        body: JSON.stringify({ vehicle_reg: 'TEST' }),
+        body: JSON.stringify({}),
       });
       const data = await r.json();
       alert(r.ok ? `Poll OK: ${JSON.stringify(data)}` : `Poll FEL: ${JSON.stringify(data)}`);
@@ -106,7 +106,7 @@ export default function SettingsPage() {
     try {
       const r = await fetchAuth(`${API}/integrations/home-assistant/force-update-and-poll`, {
         method: 'POST',
-        body: JSON.stringify({ vehicle_reg: 'TEST' }),
+        body: JSON.stringify({}),
       });
       const data = await r.json();
       alert(r.ok ? `Force OK: ${JSON.stringify(data)}` : `Force FEL: ${JSON.stringify(data)}`);
