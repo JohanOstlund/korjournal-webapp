@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.2] - 2026-11-06
+### Fixed
+- **Resor startade från Home Assistant avslutades utan slutmätarställning.**
+  Webben frågade HA om regnumret i formulärets fält i stället för resans. En
+  resa som startats via HA-knappen lämnar fältet tomt, så frågan gällde
+  `"UNKNOWN"` och fordonslåset svarade 409 på både force- och vanlig poll.
+  Webbens egen kontroll tittade samtidigt på resans regnr och såg inget fel —
+  så resan sparades tyst med tomt slutvärde och utan distans. HA-anropen tar nu
+  resans regnr.
+- **Testknapparna för HA i Inställningar** skickade regnr `TEST` och fick därför
+  alltid 409 när kopplingen var låst till en bil. De skickar nu inget regnr, så
+  att låset inte gäller testet.
+
+### Notes
+- Force-inställningarna (`force_domain`, `force_service`, `force_data_json`)
+  faller tillbaka på `HA_FORCE_*` i `.env` när användaren inte satt egna. Byter
+  man bil och låser kopplingen till det nya regnumret men behåller
+  env-fallbacken, väcker force-anropet fortfarande den gamla bilen. Avläsningen
+  går mot rätt sensor, men värdet kan vara inaktuellt.
+
 ## [2.3.1] - 2026-11-05
 ### Fixed
 - **Sluttiden gick inte att rensa från mobilen.** Ett `datetime-local`-fält går
